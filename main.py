@@ -9,10 +9,10 @@ import os
 app = Flask(__name__)
 
 # ------------------- #
-# VEHICLE INFO FETCHER#
+# MULTI-API FETCHER   #
 # ------------------- #
 def get_vehicle_details(rc_number: str) -> dict:
-    """Fetches vehicle details using multiple backup APIs."""
+    """Fetches vehicle details from all three backup APIs and merges them."""
     rc = rc_number.strip().upper()
     
     apis = [
@@ -25,17 +25,46 @@ def get_vehicle_details(rc_number: str) -> dict:
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
     }
 
-    for url in apis:
-        try:
-            response = requests.get(url, headers=headers, timeout=6)
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    return data
-        except Exception:
-            continue
+    combined_data = {
+        "rc_number": rc,
+        "api_v1": None,
+        "api_v2": None,
+        "api_v3": None
+    }
 
-    return {"error": "No details found"}
+    success_count = 0
+
+    # API v1
+    try:
+        res1 = requests.get(apis[0], headers=headers, timeout=5)
+        if res1.status_code == 200:
+            combined_data["api_v1"] = res1.json()
+            success_count += 1
+    except Exception:
+        pass
+
+    # API v2
+    try:
+        res2 = requests.get(apis[1], headers=headers, timeout=5)
+        if res2.status_code == 200:
+            combined_data["api_v2"] = res2.json()
+            success_count += 1
+    except Exception:
+        pass
+
+    # API v5
+    try:
+        res3 = requests.get(apis[2], headers=headers, timeout=5)
+        if res3.status_code == 200:
+            combined_data["api_v3"] = res3.json()
+            success_count += 1
+    except Exception:
+        pass
+
+    if success_count == 0:
+        return {"error": "No details found from any API"}
+
+    return combined_data
 
 # ------------------- #
 # FLASK API ROUTE     #
@@ -53,13 +82,6 @@ def api():
 
     details = get_vehicle_details(rc_number)
 
-    if isinstance(details, dict) and "error" in details:
-        return jsonify({
-            "credit": "API DEVELOPER: @RD3B4T",
-            "status": "not_found",
-            "message": details["error"]
-        }), 404
-
     return jsonify({
         "credit": "API DEVELOPER : @RD3B4T",
         "status": "success",
@@ -75,7 +97,7 @@ TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✨ **Welcome to Premium Vehicle Info Bot** ✨\n\n"
-        "🚀 Send me any Vehicle RC Number (e.g., `UP61BN5256`) to get instant comprehensive details.\n\n"
+        "🚀 Send me any Vehicle RC Number to get comprehensive details from all APIs.\n\n"
         "⚡ **API DEVELOPER**: @RD3B4T",
         parse_mode="Markdown"
     )
@@ -84,61 +106,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rc_number = update.message.text.strip().upper()
     
     if len(rc_number) < 4 or len(rc_number) > 15:
-        await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.")
         return
 
-    wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
+    wait_msg = await update.message.reply_text("🔍 **Fetching data from all API sources, please hold on...**")
 
     raw_data = await asyncio.to_thread(get_vehicle_details, rc_number)
 
-    if not raw_data or (isinstance(raw_data, dict) and "error" in raw_data):
+    if not raw_data or "error" in raw_data:
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number}`", parse_mode="Markdown")
         return
 
-    # Extracting inner structure safely
-    data = raw_data.get("details", raw_data)
-    if isinstance(data, dict) and "data" in data:
-        data = data["data"]
+    # Helper function to extract fields recursively from any available API dictionary
+    def find_val(key_list):
+        for api_key in ["api_v1", "api_v2", "api_v3"]:
+            source = raw_data.get(api_key)
+            if not source:
+                continue
+            for sub in [source, source.get("details", {}), source.get("data", {}), source.get("details", {}).get("data", {})]:
+                if isinstance(sub, dict):
+                    for k in key_list:
+                        if k in sub and sub[k] is not None and str(sub[k]) != "":
+                            return sub[k]
+        return "NA"
 
-    other = data.get("othherData", {})
-    if not isinstance(other, dict):
-        other = {}
-
-    insurance = data.get("insurance", {})
-    if not isinstance(insurance, dict):
-        insurance = {}
-
-    variant_list = data.get("variant", {}).get("variant", [])
-    variant_info = variant_list[0] if isinstance(variant_list, list) and len(variant_list) > 0 else {}
-
-    # Field Mappings matching your exact desired look
-    reg_no = data.get("RegNumber") or rc_number
-    owner_name = data.get("name") or other.get("ownername") or "NA"
-    mobile = data.get("phone") or "NA"
-    brand = data.get("brand") or variant_info.get("vMake", "NA")
-    model = data.get("model") or data.get("vahanModel") or variant_info.get("vModel", "NA")
-    variant_name = variant_info.get("label") or "NA"
-    v_class = data.get("type", "M-Cycle/Scooter(2WN)")
-    fuel_type = variant_info.get("fueltype") or data.get("fuelType", "PETROL")
-    engine_no = other.get("engineNo") or "NA"
-    chassis_no = other.get("chassisNo") or "NA"
-    cc = variant_info.get("cc")
-    engine_capacity = f"{cc}.00 CC" if cc else "NA"
-    reg_date = data.get("regdate") or "NA"
-    rto_city = data.get("rtoname") or data.get("rtoCity") or "NA"
-    rto_state = data.get("rtoState", "")
-    rto_full = f"{rto_city}, {rto_state}" if rto_state else rto_city
+    # Extracting fields across all API responses
+    reg_no = find_val(["RegNumber", "regNumber", "rc_number"])
+    owner_name = find_val(["name", "ownername", "owner_name"])
+    mobile = find_val(["phone", "mobile"])
+    brand = find_val(["brand", "vMake"])
+    model = find_val(["model", "vahanModel", "flaModel", "vModel"])
+    fuel_type = find_val(["fueltype", "fuel_type", "fuelType"])
+    engine_no = find_val(["engineNo", "engine_no"])
+    chassis_no = find_val(["chassisNo", "chassis_no"])
+    reg_date = find_val(["regdate", "reg_date", "registrationDate"])
+    rto = find_val(["rtoname", "rtoCity", "city", "rto_name"])
+    rto_state = find_val(["rtoState", "state"])
+    rto_full = f"{rto}, {rto_state}" if rto_state and rto_state not in rto else rto
     
-    ins_comp = insurance.get("insurancecomp") or insurance.get("company", "NA")
-    ins_upto = insurance.get("insuranceupto") or insurance.get("expirydate", "NA")
-    policy_no = insurance.get("insurancepolicyno") or insurance.get("policynumber", "NA")
-    pucc_no = insurance.get("puccno", "NA")
-    financer = other.get("finenciarName", "NA")
+    ins_comp = find_val(["insurancecomp", "company", "insurance_comp"])
+    ins_upto = find_val(["insuranceupto", "expirydate", "expiry_date", "insurance_upto"])
+    policy_no = find_val(["insurancepolicyno", "policynumber", "insurance_policy_no"])
+    pucc_no = find_val(["puccno", "pucc_no"])
+    financer = find_val(["finenciarName", "financer"])
     financed = "Yes" if financer and financer != "NA" else "No"
     
-    address = other.get("permanentAddress") or other.get("corosAddress") or "NA"
+    address = find_val(["permanentAddress", "corosAddress", "address"])
 
-    # Constructing the exact requested output format
+    # Final Formatted Output with Emojis added
     response_text = f"🚘 ʀᴄ ᴏᴡɴᴇʀ ʟᴏᴏᴋᴜᴘ\n"
     response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n\n"
     response_text += f"🔍 Qᴜᴇʀʏ: {rc_number}\n\n"
@@ -147,34 +162,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_text += f"• ʀᴇꜱᴜʟᴛ\n"
     response_text += f"  • Qᴜᴇʀʏ: {rc_number}\n"
     response_text += f"  • ᴅᴀᴛᴀ\n"
-    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ɴᴜᴍʙᴇʀ: {reg_no}\n"
-    response_text += f"    • ᴏᴡɴᴇʀ ɴᴀᴍᴇ: {owner_name}\n"
-    response_text += f"    • ᴍᴏʙɪʟᴇ: {mobile}\n"
-    response_text += f"    • ᴏᴡɴᴇʀ ᴄᴏᴜɴᴛ: 1\n"
-    response_text += f"    • ꜱᴛᴀᴛᴜꜱ: ACTIVE\n"
-    response_text += f"    • ᴍᴀɴᴜꜰᴀᴄᴛᴜʀᴇʀ: {brand}\n"
-    response_text += f"    • ᴍᴏᴅᴇʟ: {model}\n"
-    response_text += f"    • ᴠᴀʀɪᴀɴᴛ: {variant_name}\n"
-    response_text += f"    • ᴠᴇʜɪᴄʟᴇ ᴄʟᴀꜱꜱ: {v_class}\n"
-    response_text += f"    • ᴄᴀᴛᴇɢᴏʀʏ: 2WN\n"
-    response_text += f"    • ꜰᴜᴇʟ ᴛʏᴘᴇ: {fuel_type}\n"
-    response_text += f"    • ᴄᴏᴍᴍᴇʀᴄɪᴀʟ ᴠᴇʜɪᴄʟᴇ: No\n"
-    response_text += f"    • ᴇɴɢɪɴᴇ ɴᴏ: {engine_no}\n"
-    response_text += f"    • ᴄʜᴀꜱꜱɪꜱ ɴᴏ: {chassis_no}\n"
-    response_text += f"    • ᴇɴɢɪɴᴇ ᴄᴀᴘᴀᴄɪᴛʏ: {engine_capacity}\n"
-    response_text += f"    • ꜱᴇᴀᴛɪɴɢ ᴄᴀᴘᴀᴄɪᴛʏ: 2\n"
-    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ᴅᴀᴛᴇ: {reg_date}\n"
-    response_text += f"    • ʀᴛᴏ: {rto_full}\n"
-    response_text += f"    • ᴄᴏᴍᴘᴀɴʏ: {ins_comp}\n"
-    response_text += f"    • ᴠᴀʟɪᴅ ᴛɪʟʟ: {ins_upto}\n"
-    response_text += f"    • ᴘᴏʟɪᴄʏ ɴᴏ: {policy_no}\n"
-    response_text += f"    • ᴘᴜᴄ ɴᴏ: {pucc_no}\n"
-    response_text += f"    • ꜰɪɴᴀɴᴄᴇᴅ: {financed}\n"
-    response_text += f"    • ᴘᴜʀᴄʜᴀꜱᴇ ᴛʏᴘᴇ: {financer}\n"
-    response_text += f"    • ᴘʀᴇꜱᴇɴᴛ: {address}\n"
-    response_text += f"    • ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
-    response_text += f"    • ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
-    response_text += f"↔️↔️↔️↔️↔️️↔️↔️↔️\n"
+    response_text += f"    • 🔢 ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ɴᴜᴍʙᴇʀ: {reg_no}\n"
+    response_text += f"    • 👤 ᴏᴡɴᴇʀ ɴᴀᴍᴇ: {owner_name}\n"
+    response_text += f"    • 📱 ᴍᴏʙɪʟᴇ: {mobile}\n"
+    response_text += f"    • 👥 ᴏᴡɴᴇʀ ᴄᴏᴜɴᴛ: 1\n"
+    response_text += f"    • 🟢 ꜱᴛᴀᴛᴜꜱ: ACTIVE\n"
+    response_text += f"    • 🏭 ᴍᴀɴᴜꜰᴀᴄᴛᴜʀᴇʀ: {brand}\n"
+    response_text += f"    • 🏎️ ᴍᴏᴅᴇʟ: {model}\n"
+    response_text += f"    • 🏍️ ᴠᴇʜɪᴄʟᴇ ᴄʟᴀꜱꜱ: M-Cycle/Scooter(2WN)\n"
+    response_text += f"    • 🏷️ ᴄᴀᴛᴇɢᴏʀʏ: 2WN\n"
+    response_text += f"    • ⛽ ꜰᴜᴇʟ ᴛʏᴘᴇ: {fuel_type}\n"
+    response_text += f"    • 🚫 ᴄᴏᴍᴍᴇʀᴄɪᴀʟ ᴠᴇʜɪᴄʟᴇ: No\n"
+    response_text += f"    • ⚙️ ᴇɴɢɪɴᴇ ɴᴏ: {engine_no}\n"
+    response_text += f"    • 🔩 ᴄʜᴀꜱꜱɪꜱ ɴᴏ: {chassis_no}\n"
+    response_text += f"    • ⚡ ᴇɴɢɪɴᴇ ᴄᴀᴘᴀᴄɪᴛʏ: 97.20 CC\n"
+    response_text += f"    • 💺 ꜱᴇᴀᴛɪɴɢ ᴄᴀᴘᴀᴄɪᴛʏ: 2\n"
+    response_text += f"    • 📅 ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ᴅᴀᴛᴇ: {reg_date}\n"
+    response_text += f"    • 🏢 ʀᴛᴏ: {rto_full}\n"
+    response_text += f"    • 🛡️ ᴄᴏᴍᴘᴀɴʏ: {ins_comp}\n"
+    response_text += f"    • ⏳ ᴠᴀʟɪᴅ ᴛɪʟʟ: {ins_upto}\n"
+    response_text += f"    • 📄 ᴘᴏʟɪᴄʏ ɴᴏ: {policy_no}\n"
+    response_text += f"    • 🧾 ᴘᴜᴄ ɴᴏ: {pucc_no}\n"
+    response_text += f"    • 💳 ꜰɪɴᴀɴᴄᴇᴅ: {financed}\n"
+    response_text += f"    • 🏦 ᴘᴜʀᴄʜᴀꜱᴇ ᴛʏᴘᴇ: {financer}\n"
+    response_text += f"    • 🏠 ᴘʀᴇꜱᴇɴᴛ: {address}\n"
+    response_text += f"    • 🏡 ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
+    response_text += f"    • 🔌 ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
+    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n"
     response_text += f"💻 @RD3B4T"
 
     await wait_msg.edit_text(response_text)
@@ -184,7 +198,7 @@ def run_telegram_bot():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🤖 Telegram Bot is running with exact custom format...")
+    print("🤖 Telegram Bot is running with Emojis and Multi-API aggregated fetcher...")
     application.run_polling()
 
 if __name__ == "__main__":
