@@ -1,12 +1,9 @@
-from flask import Flask, request, jsonify
+import asyncio
 import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
-import asyncio
-import threading
-import os
 
-app = Flask(__name__)
+TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
 
 # ------------------- #
 # VEHICLE INFO FETCHER#
@@ -38,40 +35,8 @@ def get_vehicle_details(rc_number: str) -> dict:
     return {"error": "No details found"}
 
 # ------------------- #
-# FLASK API ROUTE     #
-# ------------------- #
-@app.route("/", methods=["GET"])
-def api():
-    rc_number = request.args.get("rc_number")
-
-    if not rc_number:
-        return jsonify({
-            "credit": "API DEVELOPER: @RD3B4T",
-            "status": "error",
-            "message": "Missing required parameter: rc_number"
-        }), 400
-
-    details = get_vehicle_details(rc_number)
-
-    if isinstance(details, dict) and "error" in details:
-        return jsonify({
-            "credit": "API DEVELOPER: @RD3B4T",
-            "status": "not_found",
-            "message": details["error"]
-        }), 404
-
-    return jsonify({
-        "credit": "API DEVELOPER : @RD3B4T",
-        "status": "success",
-        "rc_number": rc_number.upper(),
-        "details": details
-    })
-
-# ------------------- #
 # TELEGRAM BOT LOGIC  #
 # ------------------- #
-TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✨ **Welcome to Premium Vehicle Info Bot** ✨\n\n"
@@ -95,7 +60,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number}`", parse_mode="Markdown")
         return
 
-    # Proper deep parsing based on the API response structure
     res_details = raw_data.get("details", raw_data)
     if isinstance(res_details, dict) and "details" in res_details:
         res_details = res_details["details"]
@@ -115,7 +79,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     variant_list = data.get("variant", {}).get("variant", [])
     variant_info = variant_list[0] if isinstance(variant_list, list) and len(variant_list) > 0 else {}
 
-    # Extracting exact fields
     reg_no = data.get("RegNumber") or rc_number
     owner_name = data.get("name") or other.get("owner_name") or other.get("ownername") or "NA"
     mobile = data.get("phone") or "NA"
@@ -142,9 +105,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     address = other.get("permanentAddress") or other.get("corosAddress") or "NA"
 
-    # Constructing the exact requested output format
     response_text = f"🚘 ʀᴄ ᴏᴡɴᴇʀ ʟᴏᴏᴋᴜᴘ\n"
-    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n\n"
+    response_text += f"↔️↔️↔️↔️↔️️↔️↔️↔️\n\n"
     response_text += f"🔍 Qᴜᴇʀʏ: {rc_number}\n\n"
     response_text += f"✨ ᴅᴇᴛᴀɪʟꜱ\n"
     response_text += f"• ꜱᴜᴄᴄᴇꜱꜱ: True\n"
@@ -178,20 +140,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_text += f"    • ᴘʀᴇꜱᴇɴᴛ: {address}\n"
     response_text += f"    • ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
     response_text += f"    • ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
-    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n"
+    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️️\n"
     response_text += f"💻 @RD3B4T"
 
     await wait_msg.edit_text(response_text)
 
-def run_telegram_bot():
+def main():
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🤖 Telegram Bot is running with updated deep parser...")
+    print("🤖 Telegram Bot is running smoothly and will not stop!")
     application.run_polling()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False), daemon=True).start()
-    run_telegram_bot()
+    main()
