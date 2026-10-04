@@ -1,1 +1,2 @@
-web: gunicorn rupesh_api:app
+web: python rupesh_bot.py
+
