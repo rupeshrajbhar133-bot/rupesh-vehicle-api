@@ -75,7 +75,7 @@ TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "✨ **Welcome to Premium Vehicle Info Bot** ✨\n\n"
-        "🚀 Send me any Vehicle RC Number (e.g., `UP70DN1860`) to get instant comprehensive details.\n\n"
+        "🚀 Send me any Vehicle RC Number (e.g., `UP61BN5256`) to get instant comprehensive details.\n\n"
         "⚡ **API DEVELOPER**: @RD3B4T",
         parse_mode="Markdown"
     )
@@ -89,49 +89,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
 
-    details = get_vehicle_details(rc_number)
+    details = await asyncio.to_thread(get_vehicle_details, rc_number)
 
     if not details or (isinstance(details, dict) and "error" in details):
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number.upper()}`", parse_mode="Markdown")
         return
 
-    # Premium Styled Response with Emojis
+    # Extracting nested details properly if returned from the API structure
+    vehicle_data = details.get("details", details)
+    if isinstance(vehicle_data, dict) and "vehicleDetails" in vehicle_data:
+        v_info = vehicle_data["vehicleDetails"]
+    else:
+        v_info = vehicle_data
+
     response_text = f"🚘 **VEHICLE INFORMATION REPORT** 🚘\n"
     response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     response_text += f"📌 **RC Number:** `{rc_number.upper()}`\n\n"
     
     emoji_map = {
-        "Owner Name": "👤",
-        "Father's Name": "👨‍👦",
-        "Owner Serial No": "🔢",
-        "Model Name": "🏎️",
-        "Maker Model": "🏭",
-        "Vehicle Class": "🚙",
-        "Fuel Type": "⛽",
-        "Fuel Norms": "🌿",
-        "Registration Date": "📅",
-        "Insurance Company": "🏢",
-        "Insurance No": "📄",
-        "Insurance Expiry": "⏳",
-        "Insurance Upto": "⏳",
-        "Fitness Upto": "🛠️",
-        "Tax Upto": "💰",
-        "PUC No": "📋",
-        "PUC Upto": "⏱️️",
-        "Financier Name": "🏦",
-        "Registered RTO": "📍",
-        "Address": "🏠",
-        "City Name": "🏙️",
-        "Phone": "📞"
+        "firstName": "👤 Owner Name",
+        "lastName": "",
+        "chassisNo": "🔩 Chassis No",
+        "engineNo": "⚙️ Engine No",
+        "makerModel": "🏎️ Model",
+        "fuelType": "⛽ Fuel Type",
+        "registrationDate": "📅 Reg. Date",
+        "rtoLocation": "📍 RTO Location",
+        "ownerSerialNo": "🔢 Owner Serial",
+        "vehicleClass": "🚙 Vehicle Class"
     }
 
-    if isinstance(details, dict):
-        for key, value in details.items():
-            if value and key not in ["status", "credit"]:
-                icon = emoji_map.get(key, "🔹")
-                response_text += f"{icon} **{key}:** {value}\n"
+    if isinstance(v_info, dict):
+        for key, value in v_info.items():
+            if value:
+                label = emoji_map.get(key, f"🔹 {key}")
+                if key == "firstName":
+                    last = v_info.get("lastName", "")
+                    response_text += f"👤 **Owner Name:** {value} {last}\n"
+                elif key == "lastName":
+                    continue
+                else:
+                    response_text += f"{label}: {value}\n"
     else:
-        response_text += f"🔹 {details}\n"
+        response_text += f"🔹 {v_info}\n"
             
     response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
     response_text += f"⚡ **Powered by:** @RD3B4T"
@@ -139,9 +139,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await wait_msg.edit_text(response_text, parse_mode="Markdown")
 
 def run_telegram_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
