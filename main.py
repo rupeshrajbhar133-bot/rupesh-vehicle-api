@@ -5,7 +5,6 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 import asyncio
 import threading
 import os
-import time
 
 app = Flask(__name__)
 
@@ -82,7 +81,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rc_number = update.message.text.strip()
+    rc_number = update.message.text.strip().upper()
     
     if len(rc_number) < 4 or len(rc_number) > 15:
         await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.", parse_mode="Markdown")
@@ -90,70 +89,105 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
 
-    start_time = time.time()
     raw_data = await asyncio.to_thread(get_vehicle_details, rc_number)
-    elapsed_time = round((time.time() - start_time) * 1000, 2)
 
     if not raw_data or (isinstance(raw_data, dict) and "error" in raw_data):
-        await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number.upper()}`", parse_mode="Markdown")
+        await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number}`", parse_mode="Markdown")
         return
 
-    # Extract nested data gracefully
+    # Extracting inner structure safely
     data = raw_data.get("details", raw_data)
     if isinstance(data, dict) and "data" in data:
         data = data["data"]
 
-    owner_name = data.get("name") or data.get("othherData", {}).get("ownername", "N/A")
-    brand = data.get("brand") or data.get("logo", "N/A")
-    model = data.get("model") or data.get("vahanModel", "N/A")
-    fuel = data.get("variant", {}).get("variant", [{}])[0].get("fueltype", "N/A")
-    reg_date = data.get("regdate", "N/A")
-    rto = data.get("rtoname") or data.get("rtoCity", "N/A")
-    
     other = data.get("othherData", {})
-    chassis = other.get("chassisNo", "N/A")
-    engine = other.get("engineNo", "N/A")
-    financer = other.get("finenciarName", "N/A")
-    address = other.get("permanentAddress") or other.get("corosAddress", "N/A")
+    if not isinstance(other, dict):
+        other = {}
 
     insurance = data.get("insurance", {})
-    ins_company = insurance.get("insurancecomp") or insurance.get("company", "N/A")
-    ins_upto = insurance.get("insuranceupto") or insurance.get("expirydate", "N/A")
+    if not isinstance(insurance, dict):
+        insurance = {}
 
-    # Build the clean, professional response layout
-    response_text = f"🎉 **VEHICLE DETAILS FOUND!**\n\n"
-    response_text += f"🚗 **RC Number:** `{rc_number.upper()}`\n"
-    response_text += f"📊 **Results:** 1 found\n"
-    response_text += f"⚡ **Time:** {elapsed_time}ms\n\n"
-    response_text += f"📊 ── **Vehicle Details #1** ──\n"
-    response_text += f"👤 **Owner Name:** {owner_name}\n"
-    response_text += f"🏎️ **Model:** {model}\n"
-    response_text += f"🏭 **Manufacturer:** {brand}\n"
-    response_text += f"⛽ **Fuel Type:** {fuel}\n"
-    response_text += f"📅 **Reg Date:** {reg_date}\n"
-    response_text += f"🏢 **RTO:** {rto}\n"
-    response_text += f"🔩 **Chassis No:** {chassis}\n"
-    response_text += f"⚙️ **Engine No:** {engine}\n"
-    response_text += f"🛡️ **Insurance Co:** {ins_company}\n"
-    response_text += f"⏳ **Insurance Upto:** {ins_upto}\n"
-    response_text += f"🏦 **Financer:** {financer}\n"
-    response_text += f"🏠 **Address:** {address}\n\n"
-    response_text += f"⚡ **Powered by:** @RD3B4T"
+    variant_list = data.get("variant", {}).get("variant", [])
+    variant_info = variant_list[0] if isinstance(variant_list, list) and len(variant_list) > 0 else {}
 
-    await wait_msg.edit_text(response_text, parse_mode="Markdown")
+    # Field Mappings matching your exact desired look
+    reg_no = data.get("RegNumber") or rc_number
+    owner_name = data.get("name") or other.get("ownername") or "NA"
+    mobile = data.get("phone") or "NA"
+    brand = data.get("brand") or variant_info.get("vMake", "NA")
+    model = data.get("model") or data.get("vahanModel") or variant_info.get("vModel", "NA")
+    variant_name = variant_info.get("label") or "NA"
+    v_class = data.get("type", "M-Cycle/Scooter(2WN)")
+    fuel_type = variant_info.get("fueltype") or data.get("fuelType", "PETROL")
+    engine_no = other.get("engineNo") or "NA"
+    chassis_no = other.get("chassisNo") or "NA"
+    cc = variant_info.get("cc")
+    engine_capacity = f"{cc}.00 CC" if cc else "NA"
+    reg_date = data.get("regdate") or "NA"
+    rto_city = data.get("rtoname") or data.get("rtoCity") or "NA"
+    rto_state = data.get("rtoState", "")
+    rto_full = f"{rto_city}, {rto_state}" if rto_state else rto_city
+    
+    ins_comp = insurance.get("insurancecomp") or insurance.get("company", "NA")
+    ins_upto = insurance.get("insuranceupto") or insurance.get("expirydate", "NA")
+    policy_no = insurance.get("insurancepolicyno") or insurance.get("policynumber", "NA")
+    pucc_no = insurance.get("puccno", "NA")
+    financer = other.get("finenciarName", "NA")
+    financed = "Yes" if financer and financer != "NA" else "No"
+    
+    address = other.get("permanentAddress") or other.get("corosAddress") or "NA"
+
+    # Constructing the exact requested output format
+    response_text = f"🚘 ʀᴄ ᴏᴡɴᴇʀ ʟᴏᴏᴋᴜᴘ\n"
+    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n\n"
+    response_text += f"🔍 Qᴜᴇʀʏ: {rc_number}\n\n"
+    response_text += f"✨ ᴅᴇᴛᴀɪʟꜱ\n"
+    response_text += f"• ꜱᴜᴄᴄᴇꜱꜱ: True\n"
+    response_text += f"• ʀᴇꜱᴜʟᴛ\n"
+    response_text += f"  • Qᴜᴇʀʏ: {rc_number}\n"
+    response_text += f"  • ᴅᴀᴛᴀ\n"
+    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ɴᴜᴍʙᴇʀ: {reg_no}\n"
+    response_text += f"    • ᴏᴡɴᴇʀ ɴᴀᴍᴇ: {owner_name}\n"
+    response_text += f"    • ᴍᴏʙɪʟᴇ: {mobile}\n"
+    response_text += f"    • ᴏᴡɴᴇʀ ᴄᴏᴜɴᴛ: 1\n"
+    response_text += f"    • ꜱᴛᴀᴛᴜꜱ: ACTIVE\n"
+    response_text += f"    • ᴍᴀɴᴜꜰᴀᴄᴛᴜʀᴇʀ: {brand}\n"
+    response_text += f"    • ᴍᴏᴅᴇʟ: {model}\n"
+    response_text += f"    • ᴠᴀʀɪᴀɴᴛ: {variant_name}\n"
+    response_text += f"    • ᴠᴇʜɪᴄʟᴇ ᴄʟᴀꜱꜱ: {v_class}\n"
+    response_text += f"    • ᴄᴀᴛᴇɢᴏʀʏ: 2WN\n"
+    response_text += f"    • ꜰᴜᴇʟ ᴛʏᴘᴇ: {fuel_type}\n"
+    response_text += f"    • ᴄᴏᴍᴍᴇʀᴄɪᴀʟ ᴠᴇʜɪᴄʟᴇ: No\n"
+    response_text += f"    • ᴇɴɢɪɴᴇ ɴᴏ: {engine_no}\n"
+    response_text += f"    • ᴄʜᴀꜱꜱɪꜱ ɴᴏ: {chassis_no}\n"
+    response_text += f"    • ᴇɴɢɪɴᴇ ᴄᴀᴘᴀᴄɪᴛʏ: {engine_capacity}\n"
+    response_text += f"    • ꜱᴇᴀᴛɪɴɢ ᴄᴀᴘᴀᴄɪᴛʏ: 2\n"
+    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ᴅᴀᴛᴇ: {reg_date}\n"
+    response_text += f"    • ʀᴛᴏ: {rto_full}\n"
+    response_text += f"    • ᴄᴏᴍᴘᴀɴʏ: {ins_comp}\n"
+    response_text += f"    • ᴠᴀʟɪᴅ ᴛɪʟʟ: {ins_upto}\n"
+    response_text += f"    • ᴘᴏʟɪᴄʏ ɴᴏ: {policy_no}\n"
+    response_text += f"    • ᴘᴜᴄ ɴᴏ: {pucc_no}\n"
+    response_text += f"    • ꜰɪɴᴀɴᴄᴇᴅ: {financed}\n"
+    response_text += f"    • ᴘᴜʀᴄʜᴀꜱᴇ ᴛʏᴘᴇ: {financer}\n"
+    response_text += f"    • ᴘʀᴇꜱᴇɴᴛ: {address}\n"
+    response_text += f"    • ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
+    response_text += f"    • ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
+    response_text += f"↔️↔️↔️↔️↔️️↔️↔️↔️\n"
+    response_text += f"💻 @RD3B4T"
+
+    await wait_msg.edit_text(response_text)
 
 def run_telegram_bot():
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🤖 Telegram Bot is running with Clean Format...")
+    print("🤖 Telegram Bot is running with exact custom format...")
     application.run_polling()
 
 if __name__ == "__main__":
-    # Run Flask server in a background thread
     port = int(os.environ.get("PORT", 5000))
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False), daemon=True).start()
-    
-    # Run Telegram bot in the main thread
     run_telegram_bot()
