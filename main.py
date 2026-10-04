@@ -3,7 +3,7 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
-TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
+TELEGRAM_BOT_TOKEN = "8496632773:AAFuw5L-glF2KJbwNmQf0lSL9m5eqhqANxA"
 
 # ------------------- #
 # VEHICLE INFO FETCHER#
@@ -106,7 +106,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     address = other.get("permanentAddress") or other.get("corosAddress") or "NA"
 
     response_text = f"🚘 ʀᴄ ᴏᴡɴᴇʀ ʟᴏᴏᴋᴜᴘ\n"
-    response_text += f"↔️↔️↔️↔️↔️️↔️↔️↔️\n\n"
+    response_text += f"↔️↔️↔️↔️↔↔️↔️↔️\n\n"
     response_text += f"🔍 Qᴜᴇʀʏ: {rc_number}\n\n"
     response_text += f"✨ ᴅᴇᴛᴀɪʟꜱ\n"
     response_text += f"• ꜱᴜᴄᴄᴇꜱꜱ: True\n"
@@ -140,7 +140,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_text += f"    • ᴘʀᴇꜱᴇɴᴛ: {address}\n"
     response_text += f"    • ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
     response_text += f"    • ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
-    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️️\n"
+    response_text += f"↔️↔️️↔️↔️↔️↔️↔️↔\n"
     response_text += f"💻 @RD3B4T"
 
     await wait_msg.edit_text(response_text)
