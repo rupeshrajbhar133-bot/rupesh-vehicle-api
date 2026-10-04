@@ -5,6 +5,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Messa
 import asyncio
 import threading
 import os
+import time
 
 app = Flask(__name__)
 
@@ -89,49 +90,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
 
-    details = await asyncio.to_thread(get_vehicle_details, rc_number)
+    start_time = time.time()
+    raw_data = await asyncio.to_thread(get_vehicle_details, rc_number)
+    elapsed_time = round((time.time() - start_time) * 1000, 2)
 
-    if not details or (isinstance(details, dict) and "error" in details):
+    if not raw_data or (isinstance(raw_data, dict) and "error" in raw_data):
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number.upper()}`", parse_mode="Markdown")
         return
 
-    vehicle_data = details.get("details", details)
-    if isinstance(vehicle_data, dict) and "vehicleDetails" in vehicle_data:
-        v_info = vehicle_data["vehicleDetails"]
-    else:
-        v_info = vehicle_data
+    # Extract nested data gracefully
+    data = raw_data.get("details", raw_data)
+    if isinstance(data, dict) and "data" in data:
+        data = data["data"]
 
-    response_text = f"🚘 **VEHICLE INFORMATION REPORT** 🚘\n"
-    response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    response_text += f"📌 **RC Number:** `{rc_number.upper()}`\n\n"
+    owner_name = data.get("name") or data.get("othherData", {}).get("ownername", "N/A")
+    brand = data.get("brand") or data.get("logo", "N/A")
+    model = data.get("model") or data.get("vahanModel", "N/A")
+    fuel = data.get("variant", {}).get("variant", [{}])[0].get("fueltype", "N/A")
+    reg_date = data.get("regdate", "N/A")
+    rto = data.get("rtoname") or data.get("rtoCity", "N/A")
     
-    emoji_map = {
-        "firstName": "👤 Owner Name",
-        "chassisNo": "🔩 Chassis No",
-        "engineNo": "⚙️ Engine No",
-        "makerModel": "🏎️ Model",
-        "fuelType": "⛽ Fuel Type",
-        "registrationDate": "📅 Reg. Date",
-        "rtoLocation": "📍 RTO Location",
-        "ownerSerialNo": "🔢 Owner Serial",
-        "vehicleClass": "🚙 Vehicle Class"
-    }
+    other = data.get("othherData", {})
+    chassis = other.get("chassisNo", "N/A")
+    engine = other.get("engineNo", "N/A")
+    financer = other.get("finenciarName", "N/A")
+    address = other.get("permanentAddress") or other.get("corosAddress", "N/A")
 
-    if isinstance(v_info, dict):
-        for key, value in v_info.items():
-            if value:
-                label = emoji_map.get(key, f"🔹 {key}")
-                if key == "firstName":
-                    last = v_info.get("lastName", "")
-                    response_text += f"👤 **Owner Name:** {value} {last}\n"
-                elif key == "lastName":
-                    continue
-                else:
-                    response_text += f"{label}: {value}\n"
-    else:
-        response_text += f"🔹 {v_info}\n"
-            
-    response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    insurance = data.get("insurance", {})
+    ins_company = insurance.get("insurancecomp") or insurance.get("company", "N/A")
+    ins_upto = insurance.get("insuranceupto") or insurance.get("expirydate", "N/A")
+
+    # Build the clean, professional response layout
+    response_text = f"🎉 **VEHICLE DETAILS FOUND!**\n\n"
+    response_text += f"🚗 **RC Number:** `{rc_number.upper()}`\n"
+    response_text += f"📊 **Results:** 1 found\n"
+    response_text += f"⚡ **Time:** {elapsed_time}ms\n\n"
+    response_text += f"📊 ── **Vehicle Details #1** ──\n"
+    response_text += f"👤 **Owner Name:** {owner_name}\n"
+    response_text += f"🏎️ **Model:** {model}\n"
+    response_text += f"🏭 **Manufacturer:** {brand}\n"
+    response_text += f"⛽ **Fuel Type:** {fuel}\n"
+    response_text += f"📅 **Reg Date:** {reg_date}\n"
+    response_text += f"🏢 **RTO:** {rto}\n"
+    response_text += f"🔩 **Chassis No:** {chassis}\n"
+    response_text += f"⚙️ **Engine No:** {engine}\n"
+    response_text += f"🛡️ **Insurance Co:** {ins_company}\n"
+    response_text += f"⏳ **Insurance Upto:** {ins_upto}\n"
+    response_text += f"🏦 **Financer:** {financer}\n"
+    response_text += f"🏠 **Address:** {address}\n\n"
     response_text += f"⚡ **Powered by:** @RD3B4T"
 
     await wait_msg.edit_text(response_text, parse_mode="Markdown")
@@ -141,7 +147,7 @@ def run_telegram_bot():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🤖 Telegram Bot is running with Premium Style...")
+    print("🤖 Telegram Bot is running with Clean Format...")
     application.run_polling()
 
 if __name__ == "__main__":
@@ -149,5 +155,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False), daemon=True).start()
     
-    # Run Telegram bot in the main thread (fixes set_wakeup_fd error)
+    # Run Telegram bot in the main thread
     run_telegram_bot()
