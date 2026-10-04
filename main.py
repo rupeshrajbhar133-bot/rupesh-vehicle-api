@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 import requests
-from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 import asyncio
@@ -13,65 +12,30 @@ app = Flask(__name__)
 # VEHICLE INFO FETCHER#
 # ------------------- #
 def get_vehicle_details(rc_number: str) -> dict:
-    """Fetches comprehensive vehicle details from vahanx.in."""
+    """Fetches vehicle details using multiple backup APIs."""
     rc = rc_number.strip().upper()
-    url = f"https://vahanx.in/rc-search/{rc}"
+    
+    apis = [
+        f"https://vehicleinfov1byabhigyan.vercel.app/vehicleinfov1?rc={rc}",
+        f"https://vehicleinfov2byabhigyan.vercel.app/vehicleinfov2?rc={rc}",
+        f"https://vehicleinfov5byabhigyan.vercel.app/vehicleinfov5?rc={rc}"
+    ]
 
     headers = {
-        "Host": "vahanx.in",
-        "Connection": "keep-alive",
-        "sec-ch-ua": '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
-        "sec-ch-ua-mobile": "?1",
-        "sec-ch-ua-platform": '"Android"',
-        "Upgrade-Insecure-Requests": "1",
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Referer": "https://vahanx.in/rc-search",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
     }
 
-    try:
-        response = requests.get(url, headers=headers, timeout=8)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-    except requests.exceptions.RequestException as e:
-        return {"error": f"Network error: {e}"}
-    except Exception as e:
-        return {"error": str(e)}
-
-    def get_value(label):
+    for url in apis:
         try:
-            div = soup.find("span", string=label).find_parent("div")
-            return div.find("p").get_text(strip=True)
-        except AttributeError:
-            return None
+            response = requests.get(url, headers=headers, timeout=6)
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    return data
+        except Exception:
+            continue
 
-    data = {
-        "Owner Name": get_value("Owner Name"),
-        "Father's Name": get_value("Father's Name"),
-        "Owner Serial No": get_value("Owner Serial No"),
-        "Model Name": get_value("Model Name"),
-        "Maker Model": get_value("Maker Model"),
-        "Vehicle Class": get_value("Vehicle Class"),
-        "Fuel Type": get_value("Fuel Type"),
-        "Fuel Norms": get_value("Fuel Norms"),
-        "Registration Date": get_value("Registration Date"),
-        "Insurance Company": get_value("Insurance Company"),
-        "Insurance No": get_value("Insurance No"),
-        "Insurance Expiry": get_value("Insurance Expiry"),
-        "Insurance Upto": get_value("Insurance Upto"),
-        "Fitness Upto": get_value("Fitness Upto"),
-        "Tax Upto": get_value("Tax Upto"),
-        "PUC No": get_value("PUC No"),
-        "PUC Upto": get_value("PUC Upto"),
-        "Financier Name": get_value("Financier Name"),
-        "Registered RTO": get_value("Registered RTO"),
-        "Address": get_value("Address"),
-        "City Name": get_value("City Name"),
-        "Phone": get_value("Phone")
-    }
-    return data
+    return {"error": "No details found"}
 
 # ------------------- #
 # FLASK API ROUTE     #
@@ -89,18 +53,11 @@ def api():
 
     details = get_vehicle_details(rc_number)
 
-    if details.get("error"):
-        return jsonify({
-            "credit": "API DEVELOPER: @RD3B4T",
-            "status": "error",
-            "message": details["error"]
-        }), 500
-
-    if not any(details.values()):
+    if isinstance(details, dict) and "error" in details:
         return jsonify({
             "credit": "API DEVELOPER: @RD3B4T",
             "status": "not_found",
-            "message": f"No details found for {rc_number}"
+            "message": details["error"]
         }), 404
 
     return jsonify({
@@ -113,48 +70,75 @@ def api():
 # ------------------- #
 # TELEGRAM BOT LOGIC  #
 # ------------------- #
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN_HERE")
+TELEGRAM_BOT_TOKEN = "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY"
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Welcome to Vehicle Info Bot!\n\n"
-        "Send me any Vehicle RC Number (e.g., `DL01AB1234`) to get complete details.\n\n"
-        "⚡ API DEVELOPER: @RD3B4T"
+        "✨ **Welcome to Premium Vehicle Info Bot** ✨\n\n"
+        "🚀 Send me any Vehicle RC Number (e.g., `UP70DN1860`) to get instant comprehensive details.\n\n"
+        "⚡ **API DEVELOPER**: @RD3B4T",
+        parse_mode="Markdown"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rc_number = update.message.text.strip()
     
     if len(rc_number) < 4 or len(rc_number) > 15:
-        await update.message.reply_text("❌ Please send a valid RC number.")
+        await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.", parse_mode="Markdown")
         return
 
-    wait_msg = await update.message.reply_text("🔍 Fetching vehicle details, please wait...")
+    wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
 
     details = get_vehicle_details(rc_number)
 
-    if details.get("error"):
-        await wait_msg.edit_text(f"❌ Error: {details['error']}")
+    if not details or (isinstance(details, dict) and "error" in details):
+        await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number.upper()}`", parse_mode="Markdown")
         return
 
-    if not any(details.values()):
-        await wait_msg.edit_text(f"❌ No details found for RC: `{rc_number.upper()}`")
-        return
+    # Premium Styled Response with Emojis
+    response_text = f"🚘 **VEHICLE INFORMATION REPORT** 🚘\n"
+    response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    response_text += f"📌 **RC Number:** `{rc_number.upper()}`\n\n"
+    
+    emoji_map = {
+        "Owner Name": "👤",
+        "Father's Name": "👨‍👦",
+        "Owner Serial No": "🔢",
+        "Model Name": "🏎️",
+        "Maker Model": "🏭",
+        "Vehicle Class": "🚙",
+        "Fuel Type": "⛽",
+        "Fuel Norms": "🌿",
+        "Registration Date": "📅",
+        "Insurance Company": "🏢",
+        "Insurance No": "📄",
+        "Insurance Expiry": "⏳",
+        "Insurance Upto": "⏳",
+        "Fitness Upto": "🛠️",
+        "Tax Upto": "💰",
+        "PUC No": "📋",
+        "PUC Upto": "⏱️️",
+        "Financier Name": "🏦",
+        "Registered RTO": "📍",
+        "Address": "🏠",
+        "City Name": "🏙️",
+        "Phone": "📞"
+    }
 
-    response_text = f"🚗 **Vehicle Details for `{rc_number.upper()}`**\n\n"
-    for key, value in details.items():
-        if value:
-            response_text += f"• **{key}**: {value}\n"
+    if isinstance(details, dict):
+        for key, value in details.items():
+            if value and key not in ["status", "credit"]:
+                icon = emoji_map.get(key, "🔹")
+                response_text += f"{icon} **{key}:** {value}\n"
+    else:
+        response_text += f"🔹 {details}\n"
             
-    response_text += f"\n⚡ **API DEVELOPER**: @RD3B4T"
+    response_text += f"━━━━━━━━━━━━━━━━━━━━━━\n"
+    response_text += f"⚡ **Powered by:** @RD3B4T"
 
     await wait_msg.edit_text(response_text, parse_mode="Markdown")
 
 def run_telegram_bot():
-    if TELEGRAM_BOT_TOKEN == "8496632773:AAHdTKxY_iNN3-sSsJmgzBw4zmOIZeB5mrY":
-        print("⚠️ Telegram bot token not set. Skipping bot startup.")
-        return
-    
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -162,13 +146,11 @@ def run_telegram_bot():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    print("🤖 Telegram Bot is running...")
+    print("🤖 Telegram Bot is running with Premium Style...")
     application.run_polling()
 
 if __name__ == "__main__":
     threading.Thread(target=run_telegram_bot, daemon=True).start()
     
-    # Render provides PORT dynamically via environment variables
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
-    
