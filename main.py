@@ -95,7 +95,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number.upper()}`", parse_mode="Markdown")
         return
 
-    # Extracting nested details properly if returned from the API structure
     vehicle_data = details.get("details", details)
     if isinstance(vehicle_data, dict) and "vehicleDetails" in vehicle_data:
         v_info = vehicle_data["vehicleDetails"]
@@ -108,7 +107,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     emoji_map = {
         "firstName": "👤 Owner Name",
-        "lastName": "",
         "chassisNo": "🔩 Chassis No",
         "engineNo": "⚙️ Engine No",
         "makerModel": "🏎️ Model",
@@ -147,7 +145,9 @@ def run_telegram_bot():
     application.run_polling()
 
 if __name__ == "__main__":
-    threading.Thread(target=run_telegram_bot, daemon=True).start()
-    
+    # Run Flask server in a background thread
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    threading.Thread(target=lambda: app.run(host="0.0.0.0", port=port, debug=False), daemon=True).start()
+    
+    # Run Telegram bot in the main thread (fixes set_wakeup_fd error)
+    run_telegram_bot()
