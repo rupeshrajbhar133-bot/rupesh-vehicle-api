@@ -1,2 +1,1 @@
-web: python rupesh_bot.py
-
+worker: python main.py
