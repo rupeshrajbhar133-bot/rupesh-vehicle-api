@@ -3,34 +3,29 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 
-TELEGRAM_BOT_TOKEN = "8496632773:AAFuw5L-glF2KJbwNmQf0lSL9m5eqhqANxA"
+TELEGRAM_BOT_TOKEN = "8496632773:AAEu1oWwnVwiov7b0Whs8sN9bSfScEmab5k"
 
 # ------------------- #
-# VEHICLE INFO FETCHER#
+# VEHICLE CHALLAN FETCHER #
 # ------------------- #
 def get_vehicle_details(rc_number: str) -> dict:
-    """Fetches vehicle details using multiple backup APIs."""
+    """Fetches vehicle challan details using the updated API."""
     rc = rc_number.strip().upper()
     
-    apis = [
-        f"https://vehicleinfov1byabhigyan.vercel.app/vehicleinfov1?rc={rc}",
-        f"https://vehicleinfov2byabhigyan.vercel.app/vehicleinfov2?rc={rc}",
-        f"https://vehicleinfov5byabhigyan.vercel.app/vehicleinfov5?rc={rc}"
-    ]
+    api_url = f"https://challan-info-new-abhigyan.vercel.app/challaninfo?vehicle={rc}"
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
     }
 
-    for url in apis:
-        try:
-            response = requests.get(url, headers=headers, timeout=6)
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    return data
-        except Exception:
-            continue
+    try:
+        response = requests.get(api_url, headers=headers, timeout=6)
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                return data
+    except Exception as e:
+        print(f"API Error: {e}")
 
     return {"error": "No details found"}
 
@@ -39,8 +34,8 @@ def get_vehicle_details(rc_number: str) -> dict:
 # ------------------- #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "✨ **Welcome to Premium Vehicle Info Bot** ✨\n\n"
-        "🚀 Send me any Vehicle RC Number (e.g., `UP61BN5256`) to get instant comprehensive details.\n\n"
+        "✨ **Welcome to Premium Vehicle Challan Bot** ✨\n\n"
+        "🚀 Send me any Vehicle RC Number (e.g., `UP70AJ2399`) to check pending challans instantly.\n\n"
         "⚡ **API DEVELOPER**: @RD3B4T",
         parse_mode="Markdown"
     )
@@ -52,98 +47,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.", parse_mode="Markdown")
         return
 
-    wait_msg = await update.message.reply_text("🔍 **Searching database, please hold on...**", parse_mode="Markdown")
+    wait_msg = await update.message.reply_text("🔍 **Checking challan database, please hold on...**", parse_mode="Markdown")
 
-    raw_data = await asyncio.to_thread(get_vehicle_details, rc_number)
+    data = await asyncio.to_thread(get_vehicle_details, rc_number)
 
-    if not raw_data or (isinstance(raw_data, dict) and "error" in raw_data):
+    if not data or (isinstance(data, dict) and data.get("error")):
         await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number}`", parse_mode="Markdown")
         return
 
-    res_details = raw_data.get("details", raw_data)
-    if isinstance(res_details, dict) and "details" in res_details:
-        res_details = res_details["details"]
-        
-    data = res_details.get("data", res_details)
-    if not isinstance(data, dict):
-        data = {}
+    vehicle = data.get("vehicle", rc_number)
+    pending_count = data.get("pending_count", 0)
+    pending_challans = data.get("pendingChallans", [])
 
-    other = data.get("othherData", {})
-    if not isinstance(other, dict):
-        other = {}
+    response_text = f"🚨 **ᴠᴇʜɪᴄʟᴇ ᴄʜᴀʟʟᴀɴ ʀᴇᴘᴏʀᴛ** 🚨\n"
+    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n\n"
+    response_text += f"🚗 **Vehicle Number:** `{vehicle}`\n"
+    response_text += f"📋 **Pending Challans:** `{pending_count}`\n\n"
 
-    insurance = data.get("insurance", {})
-    if not isinstance(insurance, dict):
-        insurance = {}
+    if pending_count == 0 or not pending_challans:
+        response_text += f"✅ **Great news! No pending challans found.**\n"
+    else:
+        for i, challan in enumerate(pending_challans, 1):
+            c_no = challan.get("challanNumber", "N/A")
+            issued = challan.get("issuedOn", "N/A")
+            loc = challan.get("location", "N/A").replace("_", " ")
+            violator = challan.get("violatorName", "N/A")
+            
+            violations_list = challan.get("violations", ["Traffic Rule Violation"])
+            violation_desc = violations_list[0] if violations_list else "Traffic Rule Violation"
+            
+            amount = challan.get("amount", 0)
+            convenience = challan.get("convenienceFees", 0)
+            gst = challan.get("gstFee", 0)
+            total = challan.get("totalAmount", amount)
 
-    variant_list = data.get("variant", {}).get("variant", [])
-    variant_info = variant_list[0] if isinstance(variant_list, list) and len(variant_list) > 0 else {}
+            response_text += f"🛑 **Challan #{i}**\n"
+            response_text += f"• **Challan No:** `{c_no}`\n"
+            response_text += f"• **Issued On:** {issued}\n"
+            response_text += f"• **Location:** {loc}\n"
+            response_text += f"• **Violator:** {violator}\n"
+            response_text += f"• **Violation:** {violation_desc}\n"
+            response_text += f"• **Fine Amount:** ₹{amount}\n"
+            response_text += f"• **Fees (Conv + GST):** ₹{convenience} + ₹{gst}\n"
+            response_text += f"• **Total Amount:** **₹{total}**\n\n"
 
-    reg_no = data.get("RegNumber") or rc_number
-    owner_name = data.get("name") or other.get("owner_name") or other.get("ownername") or "NA"
-    mobile = data.get("phone") or "NA"
-    brand = data.get("brand") or variant_info.get("vMake", "NA")
-    model = data.get("model") or data.get("vahanModel") or variant_info.get("vModel", "NA")
-    variant_name = variant_info.get("label") or "NA"
-    v_class = data.get("type", "M-Cycle/Scooter(2WN)")
-    fuel_type = variant_info.get("fuel_type") or variant_info.get("fueltype") or data.get("fuelType", "PETROL")
-    engine_no = other.get("engineNo") or "NA"
-    chassis_no = other.get("chassisNo") or "NA"
-    cc = variant_info.get("cc")
-    engine_capacity = f"{cc}.00 CC" if cc else "NA"
-    reg_date = data.get("reg_date") or data.get("regdate") or "NA"
-    rto_city = data.get("rto_name") or data.get("rtoname") or data.get("rtoCity") or data.get("city", "NA")
-    rto_state = data.get("rtoState", "")
-    rto_full = f"{rto_city}, {rto_state}" if rto_state and rto_state not in rto_city else rto_city
-    
-    ins_comp = insurance.get("insurance_comp") or insurance.get("insurancecomp") or insurance.get("company", "NA")
-    ins_upto = insurance.get("insurance_upto") or insurance.get("insuranceupto") or insurance.get("expiry_date", "NA")
-    policy_no = insurance.get("insurance_policy_no") or insurance.get("insurancepolicyno") or insurance.get("policynumber", "NA")
-    pucc_no = insurance.get("pucc_no") or insurance.get("puccno", "NA")
-    financer = other.get("finenciarName", "NA")
-    financed = "Yes" if financer and financer != "NA" else "No"
-    
-    address = other.get("permanentAddress") or other.get("corosAddress") or "NA"
+    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n"
+    response_text += f"💻 **@RD3B4T**"
 
-    response_text = f"🚘 ʀᴄ ᴏᴡɴᴇʀ ʟᴏᴏᴋᴜᴘ\n"
-    response_text += f"↔️↔️↔️↔️↔↔️↔️↔️\n\n"
-    response_text += f"🔍 Qᴜᴇʀʏ: {rc_number}\n\n"
-    response_text += f"✨ ᴅᴇᴛᴀɪʟꜱ\n"
-    response_text += f"• ꜱᴜᴄᴄᴇꜱꜱ: True\n"
-    response_text += f"• ʀᴇꜱᴜʟᴛ\n"
-    response_text += f"  • Qᴜᴇʀʏ: {rc_number}\n"
-    response_text += f"  • ᴅᴀᴛᴀ\n"
-    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ɴᴜᴍʙᴇʀ: {reg_no}\n"
-    response_text += f"    • ᴏᴡɴᴇʀ ɴᴀᴍᴇ: {owner_name}\n"
-    response_text += f"    • ᴍᴏʙɪʟᴇ: {mobile}\n"
-    response_text += f"    • ᴏᴡɴᴇʀ ᴄᴏᴜɴᴛ: 1\n"
-    response_text += f"    • ꜱᴛᴀᴛᴜꜱ: ACTIVE\n"
-    response_text += f"    • ᴍᴀɴᴜꜰᴀᴄᴛᴜʀᴇʀ: {brand}\n"
-    response_text += f"    • ᴍᴏᴅᴇʟ: {model}\n"
-    response_text += f"    • ᴠᴀʀɪᴀɴᴛ: {variant_name}\n"
-    response_text += f"    • ᴠᴇʜɪᴄʟᴇ ᴄʟᴀꜱꜱ: {v_class}\n"
-    response_text += f"    • ᴄᴀᴛᴇɢᴏʀʏ: 2WN\n"
-    response_text += f"    • ꜰᴜᴇʟ ᴛʏᴘᴇ: {fuel_type}\n"
-    response_text += f"    • ᴄᴏᴍᴍᴇʀᴄɪᴀʟ ᴠᴇʜɪᴄʟᴇ: No\n"
-    response_text += f"    • ᴇɴɢɪɴᴇ ɴᴏ: {engine_no}\n"
-    response_text += f"    • ᴄʜᴀꜱꜱɪꜱ ɴᴏ: {chassis_no}\n"
-    response_text += f"    • ᴇɴɢɪɴᴇ ᴄᴀᴘᴀᴄɪᴛʏ: {engine_capacity}\n"
-    response_text += f"    • ꜱᴇᴀᴛɪɴɢ ᴄᴀᴘᴀᴄɪᴛʏ: 2\n"
-    response_text += f"    • ʀᴇɢɪꜱᴛʀᴀᴛɪᴏɴ ᴅᴀᴛᴇ: {reg_date}\n"
-    response_text += f"    • ʀᴛᴏ: {rto_full}\n"
-    response_text += f"    • ᴄᴏᴍᴘᴀɴʏ: {ins_comp}\n"
-    response_text += f"    • ᴠᴀʟɪᴅ ᴛɪʟʟ: {ins_upto}\n"
-    response_text += f"    • ᴘᴏʟɪᴄʏ ɴᴏ: {policy_no}\n"
-    response_text += f"    • ᴘᴜᴄ ɴᴏ: {pucc_no}\n"
-    response_text += f"    • ꜰɪɴᴀɴᴄᴇᴅ: {financed}\n"
-    response_text += f"    • ᴘᴜʀᴄʜᴀꜱᴇ ᴛʏᴘᴇ: {financer}\n"
-    response_text += f"    • ᴘʀᴇꜱᴇɴᴛ: {address}\n"
-    response_text += f"    • ᴘᴇʀᴍᴀɴᴇɴᴛ: {address}\n"
-    response_text += f"    • ᴇʟᴇᴄᴛʀɪᴄ ᴠᴇʜɪᴄʟᴇ: No\n\n\n"
-    response_text += f"↔️↔️️↔️↔️↔️↔️↔️↔\n"
-    response_text += f"💻 @RD3B4T"
-
-    await wait_msg.edit_text(response_text)
+    await wait_msg.edit_text(response_text, parse_mode="Markdown")
 
 def main():
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
@@ -155,3 +106,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
