@@ -1,109 +1,191 @@
-import asyncio
+import html
+import logging
 import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+from telegram.constants import ParseMode
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
-TELEGRAM_BOT_TOKEN = "8496632773:AAEu1oWwnVwiov7b0Whs8sN9bSfScEmab5k"
+# Direct credentials configuration
+BOT_TOKEN = "8496632773:AAFTkCgRk8592Ij9Xz5uHy505dcO9_iRiNE"
+API_KEY = "5RM3M"
+API_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
 
-# ------------------- #
-# VEHICLE CHALLAN FETCHER #
-# ------------------- #
-def get_vehicle_details(rc_number: str) -> dict:
-    """Fetches vehicle challan details using the updated API."""
-    rc = rc_number.strip().upper()
-    
-    api_url = f"https://challan-info-new-abhigyan.vercel.app/challaninfo?vehicle={rc}"
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-    }
 
-    try:
-        response = requests.get(api_url, headers=headers, timeout=6)
-        if response.status_code == 200:
-            data = response.json()
-            if data:
-                return data
-    except Exception as e:
-        print(f"API Error: {e}")
+def clean(val) -> str:
+    if val is None or str(val).strip() in ("", "None", "NA", "Array", "null"):
+        return "N/A"
+    return html.escape(str(val).strip())
 
-    return {"error": "No details found"}
 
-# ------------------- #
-# TELEGRAM BOT LOGIC  #
-# ------------------- #
+def format_vehicle_rc(rc: dict) -> list[str]:
+    lines = [
+        "🚗 <b>VEHICLE REGISTRATION (RC) DETAILS</b>",
+        f"• <b>RC Number:</b> <code>{clean(rc.get('rc_regn_no'))}</code>",
+        f"• <b>Owner Name:</b> <b>{clean(rc.get('rc_owner_name'))}</b> (Owner #{clean(rc.get('rc_owner_sr'))})",
+        f"• <b>Father / Husband:</b> {clean(rc.get('rc_f_name'))}",
+        f"• <b>Mobile:</b> <code>{clean(rc.get('rc_mobile_no'))}</code>",
+        f"• <b>Vehicle Model:</b> {clean(rc.get('rc_maker_model'))}",
+        f"• <b>Manufacturer:</b> {clean(rc.get('rc_maker_desc'))}",
+        f"• <b>Class / Body:</b> {clean(rc.get('rc_vh_class_desc'))} ({clean(rc.get('rc_body_type_desc'))})",
+        f"• <b>Fuel Type:</b> {clean(rc.get('rc_fuel_desc'))} | <b>Color:</b> {clean(rc.get('rc_color'))}",
+        f"• <b>Engine No:</b> <code>{clean(rc.get('rc_eng_no'))}</code>",
+        f"• <b>Chassis No:</b> <code>{clean(rc.get('rc_chasi_no'))}</code>",
+        f"• <b>Registration Date:</b> {clean(rc.get('rc_regn_dt'))}",
+        f"• <b>Fitness / Tax Upto:</b> {clean(rc.get('rc_regn_upto'))}",
+        f"• <b>RC Status:</b> <b>{clean(rc.get('rc_status'))}</b>",
+        f"• <b>Registered RTO:</b> {clean(rc.get('rc_registered_at'))}",
+        "\n🛡️ <b>Insurance & Compliance:</b>",
+        f"• <b>Insurance Co:</b> {clean(rc.get('rc_insurance_comp'))}",
+        f"• <b>Policy No:</b> <code>{clean(rc.get('rc_insurance_policy_no'))}</code>",
+        f"• <b>Insurance Validity:</b> {clean(rc.get('rc_insurance_upto'))}",
+        f"• <b>PUCC Validity:</b> {clean(rc.get('rc_pucc_upto'))} (<code>{clean(rc.get('rc_pucc_no'))}</code>)",
+        f"\n📍 <b>Registered Address:</b>\n{clean(rc.get('rc_present_address'))}",
+    ]
+    return lines
+
+
+def format_challans(challan_list: list) -> list[str]:
+    lines = [f"📋 <b>TRAFFIC CHALLAN RECORDS ({len(challan_list)} Found)</b>"]
+    for idx, ch in enumerate(challan_list, 1):
+        status_text = clean(ch.get("status"))
+        is_paid = ch.get("challan_status", False)
+        status_badge = (
+            "🟢 PAID"
+            if (is_paid or status_text.lower() == "cash")
+            else "🔴 PENDING"
+        )
+
+        lines.append(f"\n<b>[Challan #{idx}] - {status_badge}</b>")
+        lines.append(f"• <b>Challan No:</b> <code>{clean(ch.get('challan_no'))}</code>")
+        lines.append(f"• <b>Date & Time:</b> {clean(ch.get('challan_date'))}")
+        lines.append(f"• <b>Fine Amount:</b> ₹{clean(ch.get('challan_fine'))}")
+
+        offences = ch.get("offence_details", [])
+        if offences:
+            offence_names = [clean(o.get("name")) for o in offences]
+            lines.append(f"• <b>Offence:</b> {', '.join(offence_names)}")
+
+        lines.append(
+            f"• <b>Location / RTO:</b> {clean(ch.get('rto_name'))} ({clean(ch.get('area_name'))})"
+        )
+
+        if ch.get("is_challan_in_court") == 1:
+            lines.append(f"• ⚖️ <b>Sent To Court:</b> {clean(ch.get('court_name'))}")
+
+        if is_paid and ch.get("payment_date"):
+            lines.append(
+                f"• <b>Paid On:</b> {clean(ch.get('payment_date'))} (Txn: <code>{clean(ch.get('transaction_id'))}</code>)"
+            )
+
+    return lines
+
+
+def parse_vehicle_payload(data: dict) -> list[str]:
+    messages = []
+    blocks = []
+
+    input_no = clean(data.get("input", "N/A"))
+    blocks.append(f"🔎 <b>VEHICLE SEARCH REPORT</b>: <code>{input_no}</code>\n")
+
+    vehicle_obj = data.get("results", {}).get("vehicle", {})
+
+    v_details = vehicle_obj.get("vehicle_details")
+    if v_details:
+        blocks.extend(format_vehicle_rc(v_details))
+        blocks.append("")
+    else:
+        blocks.append("⚠️ <i>RC details not found in API response.</i>\n")
+
+    challans = vehicle_obj.get("challan_details", [])
+    if challans:
+        blocks.extend(format_challans(challans))
+    else:
+        blocks.append("✅ <b>No traffic challans recorded for this vehicle.</b>")
+
+    full_text = "\n".join(blocks)
+
+    while len(full_text) > 4000:
+        split_idx = full_text.rfind("\n\n", 0, 4000)
+        if split_idx == -1:
+            split_idx = full_text.rfind("\n", 0, 4000)
+        if split_idx == -1:
+            split_idx = 4000
+        messages.append(full_text[:split_idx].strip())
+        full_text = full_text[split_idx:].strip()
+
+    if full_text:
+        messages.append(full_text)
+
+    return messages
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "✨ **Welcome to Premium Vehicle Challan Bot** ✨\n\n"
-        "🚀 Send me any Vehicle RC Number (e.g., `UP70AJ2399`) to check pending challans instantly.\n\n"
-        "⚡ **API DEVELOPER**: @RD3B4T",
-        parse_mode="Markdown"
+        "👋 Welcome! Gadi ka registration number bhejein (jaise: <code>HR26EV0001</code>) RC aur Challan status janne ke liye.",
+        parse_mode=ParseMode.HTML,
     )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rc_number = update.message.text.strip().upper()
-    
-    if len(rc_number) < 4 or len(rc_number) > 15:
-        await update.message.reply_text("⚠️ **Invalid Format!** Please send a valid RC number.", parse_mode="Markdown")
+
+async def handle_vehicle_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rc_number = update.message.text.strip().replace(" ", "").upper()
+
+    if len(rc_number) < 6:
+        await update.message.reply_text("⚠️ Kripya valid registration number enter karein.")
         return
 
-    wait_msg = await update.message.reply_text("🔍 **Checking challan database, please hold on...**", parse_mode="Markdown")
+    msg = await update.message.reply_text("🔄 <i>Fetching RC and Challan records...</i>", parse_mode=ParseMode.HTML)
 
-    data = await asyncio.to_thread(get_vehicle_details, rc_number)
+    try:
+        params = {
+            "key": API_KEY,
+            "cmd": "vehicleall",
+            "query": rc_number,
+        }
+        response = requests.get(API_URL, params=params, timeout=30)
 
-    if not data or (isinstance(data, dict) and data.get("error")):
-        await wait_msg.edit_text(f"❌ **No details found for RC:** `{rc_number}`", parse_mode="Markdown")
-        return
+        if response.status_code != 200:
+            await msg.edit_text(f"❌ Server Error: HTTP {response.status_code}")
+            return
 
-    vehicle = data.get("vehicle", rc_number)
-    pending_count = data.get("pending_count", 0)
-    pending_challans = data.get("pendingChallans", [])
+        payload = response.json()
 
-    response_text = f"🚨 **ᴠᴇʜɪᴄʟᴇ ᴄʜᴀʟʟᴀɴ ʀᴇᴘᴏʀᴛ** 🚨\n"
-    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n\n"
-    response_text += f"🚗 **Vehicle Number:** `{vehicle}`\n"
-    response_text += f"📋 **Pending Challans:** `{pending_count}`\n\n"
+        if not payload.get("results") or not payload.get("results", {}).get("vehicle"):
+            await msg.edit_text(f"⚠️ <code>{rc_number}</code> ke liye koi record nahi mila.", parse_mode=ParseMode.HTML)
+            return
 
-    if pending_count == 0 or not pending_challans:
-        response_text += f"✅ **Great news! No pending challans found.**\n"
-    else:
-        for i, challan in enumerate(pending_challans, 1):
-            c_no = challan.get("challanNumber", "N/A")
-            issued = challan.get("issuedOn", "N/A")
-            loc = challan.get("location", "N/A").replace("_", " ")
-            violator = challan.get("violatorName", "N/A")
-            
-            violations_list = challan.get("violations", ["Traffic Rule Violation"])
-            violation_desc = violations_list[0] if violations_list else "Traffic Rule Violation"
-            
-            amount = challan.get("amount", 0)
-            convenience = challan.get("convenienceFees", 0)
-            gst = challan.get("gstFee", 0)
-            total = challan.get("totalAmount", amount)
+        chunks = parse_vehicle_payload(payload)
+        await msg.delete()
 
-            response_text += f"🛑 **Challan #{i}**\n"
-            response_text += f"• **Challan No:** `{c_no}`\n"
-            response_text += f"• **Issued On:** {issued}\n"
-            response_text += f"• **Location:** {loc}\n"
-            response_text += f"• **Violator:** {violator}\n"
-            response_text += f"• **Violation:** {violation_desc}\n"
-            response_text += f"• **Fine Amount:** ₹{amount}\n"
-            response_text += f"• **Fees (Conv + GST):** ₹{convenience} + ₹{gst}\n"
-            response_text += f"• **Total Amount:** **₹{total}**\n\n"
+        for chunk in chunks:
+            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
 
-    response_text += f"↔️↔️↔️↔️↔️↔️↔️↔️\n"
-    response_text += f"💻 **@RD3B4T**"
+    except requests.exceptions.Timeout:
+        await msg.edit_text("⏳ Request timeout ho gaya. API server respond nahi kar raha.")
+    except Exception as e:
+        logging.error(f"Execution Error: {e}")
+        await msg.edit_text(f"❌ Error: {clean(str(e))}")
 
-    await wait_msg.edit_text(response_text, parse_mode="Markdown")
 
 def main():
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
-    print("🤖 Telegram Bot is running smoothly and will not stop!")
-    application.run_polling()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_vehicle_query))
+
+    print("Vehicle Info Bot is running...")
+    app.run_polling()
+
 
 if __name__ == "__main__":
     main()
-    
+                                            
