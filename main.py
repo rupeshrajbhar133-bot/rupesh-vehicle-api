@@ -76,7 +76,7 @@ def format_number_response(data: dict, query: str) -> str:
         fname = r.get("father_name") or r.get("FNAME")
         mobile = r.get("mobile") or r.get("NUMBER")
         alt = r.get("alternate_mobile") or r.get("ALT")
-        aadhar_val = str(r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar") or "").strip()
+        aadhar_val = r.get("aadhar") or r.get("AADHAAR") 
         email = r.get("email") or r.get("EMAIL")
         circle = r.get("circle") or r.get("CIRCLE")
         address = r.get("address") or r.get("ADDRESS")
