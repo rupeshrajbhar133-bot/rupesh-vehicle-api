@@ -12,7 +12,7 @@ from telegram.ext import (
 )
 
 # Direct credentials configuration
-BOT_TOKEN = "8496632773:AAFTkCgRk8592Ij9Xz5uHy505dcO9_iRiNE"
+BOT_TOKEN = "8496632773:AAHr0liCCbfUiT_LGEYqYG3S_qGZDg2QT2s"
 API_KEY = "5RM3M"
 API_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
 
