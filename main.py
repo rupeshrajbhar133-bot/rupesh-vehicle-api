@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 # Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAEY_JiRUhAhTLZEgfEUqtD7D43CaRaCeH0")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAF50q8E40t2JGin-YtWtcWs5KS1QMqNxas")
 API_KEY = os.getenv("API_KEY", "WMVL9")
 API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
 
@@ -70,28 +70,95 @@ def format_number_response(data: dict, query: str) -> str:
 
     for idx, r in enumerate(records, 1):
         name = r.get("name") or r.get("NAME")
+        first = r.get("first_name")
+        middle = r.get("middle_name")
+        last = r.get("last_name")
         fname = r.get("father_name") or r.get("FNAME")
         mobile = r.get("mobile") or r.get("NUMBER")
         alt = r.get("alternate_mobile") or r.get("ALT")
-        aadhar = r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar")
+        aadhar_val = str(r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar") or "").strip()
         email = r.get("email") or r.get("EMAIL")
         circle = r.get("circle") or r.get("CIRCLE")
         address = r.get("address") or r.get("ADDRESS")
 
         lines.append(f"\n<b>[Connection #{idx}]</b>")
-        lines.append(f"• <b>Name:</b> <b>{c(name)}</b>")
-        lines.append(f"• <b>Father's Name:</b> {c(fname)}")
-        lines.append(f"• <b>Mobile:</b> <code>{c(mobile)}</code>")
+        lines.append(f"• <b>Full Name:</b> <b>{c(name)}</b>")
+
+        # Name Breakdown
+        name_parts = []
+        if first:
+            name_parts.append(f"First: {first}")
+        if middle:
+            name_parts.append(f"Mid: {middle}")
+        if last:
+            name_parts.append(f"Last: {last}")
+        if name_parts:
+            lines.append(f"• <b>Name Split:</b> <code>{c(' | '.join(name_parts))}</code>")
+
+        if fname:
+            lines.append(f"• <b>Father's Name:</b> {c(fname)}")
+        if mobile:
+            lines.append(f"• <b>Mobile:</b> <code>{c(mobile)}</code>")
         if alt:
             lines.append(f"• <b>Alt Mobile:</b> <code>{c(alt)}</code>")
-        if aadhar:
+
+        # Aadhaar presence status
+        if aadhar_val and aadhar_val.lower() not in ("none", "null", "na"):
             lines.append("• <b>Aadhaar:</b> <code>[Linked / Redacted]</code>")
+        else:
+            lines.append("• <b>Aadhaar:</b> <code>Not Linked / Not Available</code>")
+
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
-        lines.append(f"• <b>Circle / Operator:</b> {c(circle)}")
-        lines.append(f"• <b>Address:</b> {c(address)}")
+        if circle:
+            lines.append(f"• <b>Circle / Operator:</b> {c(circle)}")
+        if address:
+            lines.append(f"• <b>Address:</b> {c(address)}")
 
     lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+    lines.append(DEV_TAG)
+    return "\n".join(lines)
+
+
+def format_tg_to_num_response(payload: dict, query_val: str) -> str:
+    """Dedicated parser for the tg-2-num API response structure."""
+    resp_obj = payload.get("response") or {}
+    data_list = resp_obj.get("data") or []
+    params = resp_obj.get("parameters") or {}
+    provider = payload.get("developer", "N/A")
+
+    if not data_list:
+        return (
+            f"⚠️ <b>Telegram ID:</b> <code>{c(query_val)}</code> ke liye koi linked phone number nahi mila.\n\n"
+            f"{DEV_TAG}"
+        )
+
+    lines = [
+        "✈️ <b>TG TO NUMBER REPORT</b>",
+        f"<b>Target:</b> <code>{c(query_val)}</code>",
+        f"<b>API Provider:</b> <code>{c(provider)}</code>",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    for idx, item in enumerate(data_list, 1):
+        num = item.get("number")
+        c_code = item.get("country_code", "")
+        country = item.get("country")
+        u_id = item.get("user_id")
+
+        lines.append(f"\n<b>[Match #{idx}]</b>")
+        if num:
+            full_phone = f"{c_code} {num}".strip()
+            lines.append(f"• <b>Phone:</b> <code>{c(full_phone)}</code>")
+        if u_id:
+            lines.append(f"• <b>User ID:</b> <code>{c(u_id)}</code>")
+        if country:
+            lines.append(f"• <b>Country:</b> {c(country)}")
+
+    if params.get("service"):
+        lines.append(f"\n• <b>Service:</b> {c(params.get('service'))}")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
     lines.append(DEV_TAG)
     return "\n".join(lines)
 
@@ -207,7 +274,7 @@ def format_aadhar_response(data: dict, query: str) -> str:
         fname = r.get("father_name") or r.get("FNAME")
         num = r.get("mobile") or r.get("NUMBER")
         alt = r.get("alternate_mobile") or r.get("ALT")
-        aadhar = r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar")
+        aadhar_val = str(r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar") or "").strip()
         circle = r.get("circle") or r.get("CIRCLE")
         email = r.get("email") or r.get("EMAIL")
         address = r.get("address") or r.get("ADDRESS")
@@ -218,8 +285,10 @@ def format_aadhar_response(data: dict, query: str) -> str:
         lines.append(f"• <b>Phone:</b> <code>{c(num)}</code>")
         if alt:
             lines.append(f"• <b>Alt Phone:</b> <code>{c(alt)}</code>")
-        if aadhar:
+        if aadhar_val and aadhar_val.lower() not in ("none", "null", "na"):
             lines.append("• <b>Aadhaar:</b> <code>[Linked / Redacted]</code>")
+        else:
+            lines.append("• <b>Aadhaar:</b> <code>Not Linked / Not Available</code>")
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
         lines.append(f"• <b>Circle:</b> {c(circle)}")
@@ -318,12 +387,12 @@ async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TY
 async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
-            f"⚠️ <b>Input missing!</b>\nUsage: <code>/tg2num &lt;telegram_id&gt;</code>\n\n{DEV_TAG}",
+            f"⚠️ <b>Input missing!</b>\nUsage: <code>/tg2num &lt;telegram_id_or_username&gt;</code>\n\n{DEV_TAG}",
             parse_mode=ParseMode.HTML,
         )
         return
 
-    query_val = context.args[0].strip()
+    query_val = context.args[0].strip().replace("@", "")
     msg = await update.message.reply_text("🔄 <i>Searching Telegram ID...</i>", parse_mode=ParseMode.HTML)
 
     params = {
@@ -352,31 +421,8 @@ async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        inner = payload.get("data") or payload.get("result") or payload
-        lines = [
-            "✈️ <b>TG TO NUMBER REPORT</b>",
-            "━━━━━━━━━━━━━━━━━━━━",
-            f"• <b>Telegram ID:</b> <code>{c(query_val)}</code>",
-        ]
+        formatted_text = format_tg_to_num_response(payload, query_val)
 
-        if isinstance(inner, dict):
-            for k, v in inner.items():
-                if isinstance(v, (str, int, float, bool)):
-                    lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
-        elif isinstance(inner, list):
-            for idx, item in enumerate(inner, 1):
-                if isinstance(item, dict):
-                    lines.append(f"\n<b>[Record #{idx}]</b>")
-                    for k, v in item.items():
-                        if isinstance(v, (str, int, float, bool)):
-                            lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
-                else:
-                    lines.append(f"\n<b>Record #{idx}:</b> <code>{c(str(item))}</code>")
-
-        lines.append("━━━━━━━━━━━━━━━━━━━━")
-        lines.append(DEV_TAG)
-
-        formatted_text = "\n".join(lines)
         chunks = split_message(formatted_text)
         if len(chunks) == 1:
             await msg.edit_text(chunks[0], parse_mode=ParseMode.HTML)
