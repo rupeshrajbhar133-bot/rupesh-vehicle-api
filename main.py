@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 # Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAGoxhZsZyTrHxMYmeiOdmC-xAtaBSFCcBk")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAGwVK2Z82hhw_94tHv9iJq41bQ9TsMtTR4")
 API_KEY = os.getenv("API_KEY", "WMVL9")
 API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
 TG_TO_NUM_API_URL = "https://tg-to-number-number-nitin.vercel.app/api"
@@ -392,3 +392,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
