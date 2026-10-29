@@ -1,20 +1,20 @@
 import html
 import logging
-import requests
+import os
+import httpx
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
 
-# Direct credentials configuration
-BOT_TOKEN = "8496632773:AAHr0liCCbfUiT_LGEYqYG3S_qGZDg2QT2s"
-API_KEY = "5RM3M"
-API_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
+# Configuration
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAERjv96juc0UfCjs2B6ZAyDhj2if5Yr2nU")
+API_KEY = os.getenv("API_KEY", "WMVL9")
+API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
+DEV_TAG = "👨‍💻 <b>Developer:</b> @RD3B4T"
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -22,170 +22,312 @@ logging.basicConfig(
 )
 
 
-def clean(val) -> str:
-    if val is None or str(val).strip() in ("", "None", "NA", "Array", "null"):
+def c(val) -> str:
+    """Safe HTML escaping with fallback."""
+    if val is None or str(val).strip() in ("", "None", "NA", "null", "false"):
         return "N/A"
     return html.escape(str(val).strip())
 
 
-def format_vehicle_rc(rc: dict) -> list[str]:
+# ==========================================
+# EXACT FIELD PARSERS FOR YOUR APIS
+# ==========================================
+
+def format_number_response(data: dict, query: str) -> str:
+    records = data.get("result") or data.get("RESULT") or []
+    if not records and isinstance(data, dict):
+        if "name" in data or "NAME" in data:
+            records = [data]
+
+    if not records:
+        return f"⚠️ <code>{c(query)}</code> ke liye koi telecom record nahi mila.\n\n{DEV_TAG}"
+
     lines = [
-        "🚗 <b>VEHICLE REGISTRATION (RC) DETAILS</b>",
-        f"• <b>RC Number:</b> <code>{clean(rc.get('rc_regn_no'))}</code>",
-        f"• <b>Owner Name:</b> <b>{clean(rc.get('rc_owner_name'))}</b> (Owner #{clean(rc.get('rc_owner_sr'))})",
-        f"• <b>Father / Husband:</b> {clean(rc.get('rc_f_name'))}",
-        f"• <b>Mobile:</b> <code>{clean(rc.get('rc_mobile_no'))}</code>",
-        f"• <b>Vehicle Model:</b> {clean(rc.get('rc_maker_model'))}",
-        f"• <b>Manufacturer:</b> {clean(rc.get('rc_maker_desc'))}",
-        f"• <b>Class / Body:</b> {clean(rc.get('rc_vh_class_desc'))} ({clean(rc.get('rc_body_type_desc'))})",
-        f"• <b>Fuel Type:</b> {clean(rc.get('rc_fuel_desc'))} | <b>Color:</b> {clean(rc.get('rc_color'))}",
-        f"• <b>Engine No:</b> <code>{clean(rc.get('rc_eng_no'))}</code>",
-        f"• <b>Chassis No:</b> <code>{clean(rc.get('rc_chasi_no'))}</code>",
-        f"• <b>Registration Date:</b> {clean(rc.get('rc_regn_dt'))}",
-        f"• <b>Fitness / Tax Upto:</b> {clean(rc.get('rc_regn_upto'))}",
-        f"• <b>RC Status:</b> <b>{clean(rc.get('rc_status'))}</b>",
-        f"• <b>Registered RTO:</b> {clean(rc.get('rc_registered_at'))}",
-        "\n🛡️ <b>Insurance & Compliance:</b>",
-        f"• <b>Insurance Co:</b> {clean(rc.get('rc_insurance_comp'))}",
-        f"• <b>Policy No:</b> <code>{clean(rc.get('rc_insurance_policy_no'))}</code>",
-        f"• <b>Insurance Validity:</b> {clean(rc.get('rc_insurance_upto'))}",
-        f"• <b>PUCC Validity:</b> {clean(rc.get('rc_pucc_upto'))} (<code>{clean(rc.get('rc_pucc_no'))}</code>)",
-        f"\n📍 <b>Registered Address:</b>\n{clean(rc.get('rc_present_address'))}",
+        f"📱 <b>MOBILE LOOKUP RECORDS ({len(records)} Found)</b>",
+        f"<b>Input:</b> <code>{c(query)}</code>",
+        "━━━━━━━━━━━━━━━━━━━━",
     ]
-    return lines
+
+    for idx, r in enumerate(records, 1):
+        name = r.get("name") or r.get("NAME")
+        fname = r.get("father_name") or r.get("FNAME")
+        mobile = r.get("mobile") or r.get("NUMBER")
+        alt = r.get("alternate_mobile") or r.get("ALT")
+        email = r.get("email") or r.get("EMAIL")
+        circle = r.get("circle") or r.get("CIRCLE")
+        address = r.get("address") or r.get("ADDRESS")
+
+        lines.append(f"\n<b>[Connection #{idx}]</b>")
+        lines.append(f"• <b>Name:</b> <b>{c(name)}</b>")
+        lines.append(f"• <b>Father's Name:</b> {c(fname)}")
+        lines.append(f"• <b>Mobile:</b> <code>{c(mobile)}</code>")
+        if alt:
+            lines.append(f"• <b>Alt Mobile:</b> <code>{c(alt)}</code>")
+        if email:
+            lines.append(f"• <b>Email:</b> {c(email)}")
+        lines.append(f"• <b>Circle / Operator:</b> {c(circle)}")
+        lines.append(f"• <b>Address:</b> {c(address)}")
+
+    lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+    lines.append(DEV_TAG)
+    return "\n".join(lines)
 
 
-def format_challans(challan_list: list) -> list[str]:
-    lines = [f"📋 <b>TRAFFIC CHALLAN RECORDS ({len(challan_list)} Found)</b>"]
-    for idx, ch in enumerate(challan_list, 1):
-        status_text = clean(ch.get("status"))
-        is_paid = ch.get("challan_status", False)
-        status_badge = (
-            "🟢 PAID"
-            if (is_paid or status_text.lower() == "cash")
-            else "🔴 PENDING"
-        )
+def format_hp_response(data: dict, query: str) -> str:
+    info = data.get("data") or data
+    if not info or data.get("error"):
+        return f"⚠️ <code>{c(query)}</code> ke liye HP connection details nahi mili.\n\n{DEV_TAG}"
 
-        lines.append(f"\n<b>[Challan #{idx}] - {status_badge}</b>")
-        lines.append(f"• <b>Challan No:</b> <code>{clean(ch.get('challan_no'))}</code>")
-        lines.append(f"• <b>Date & Time:</b> {clean(ch.get('challan_date'))}")
-        lines.append(f"• <b>Fine Amount:</b> ₹{clean(ch.get('challan_fine'))}")
+    name = info.get("consumerName") or info.get("name")
+    phone = info.get("consumerPhone1") or query
+    dob = info.get("dob")
+    pincode = info.get("pinCode")
 
-        offences = ch.get("offence_details", [])
-        if offences:
-            offence_names = [clean(o.get("name")) for o in offences]
-            lines.append(f"• <b>Offence:</b> {', '.join(offence_names)}")
-
-        lines.append(
-            f"• <b>Location / RTO:</b> {clean(ch.get('rto_name'))} ({clean(ch.get('area_name'))})"
-        )
-
-        if ch.get("is_challan_in_court") == 1:
-            lines.append(f"• ⚖️ <b>Sent To Court:</b> {clean(ch.get('court_name'))}")
-
-        if is_paid and ch.get("payment_date"):
-            lines.append(
-                f"• <b>Paid On:</b> {clean(ch.get('payment_date'))} (Txn: <code>{clean(ch.get('transaction_id'))}</code>)"
-            )
-
-    return lines
-
-
-def parse_vehicle_payload(data: dict) -> list[str]:
-    messages = []
-    blocks = []
-
-    input_no = clean(data.get("input", "N/A"))
-    blocks.append(f"🔎 <b>VEHICLE SEARCH REPORT</b>: <code>{input_no}</code>\n")
-
-    vehicle_obj = data.get("results", {}).get("vehicle", {})
-
-    v_details = vehicle_obj.get("vehicle_details")
-    if v_details:
-        blocks.extend(format_vehicle_rc(v_details))
-        blocks.append("")
-    else:
-        blocks.append("⚠️ <i>RC details not found in API response.</i>\n")
-
-    challans = vehicle_obj.get("challan_details", [])
-    if challans:
-        blocks.extend(format_challans(challans))
-    else:
-        blocks.append("✅ <b>No traffic challans recorded for this vehicle.</b>")
-
-    full_text = "\n".join(blocks)
-
-    while len(full_text) > 4000:
-        split_idx = full_text.rfind("\n\n", 0, 4000)
-        if split_idx == -1:
-            split_idx = full_text.rfind("\n", 0, 4000)
-        if split_idx == -1:
-            split_idx = 4000
-        messages.append(full_text[:split_idx].strip())
-        full_text = full_text[split_idx:].strip()
-
-    if full_text:
-        messages.append(full_text)
-
-    return messages
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Welcome! Gadi ka registration number bhejein (jaise: <code>HR26EV0001</code>) RC aur Challan status janne ke liye.",
-        parse_mode=ParseMode.HTML,
+    return (
+        f"⛽ <b>HP GAS CONNECTION RECORD</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"• <b>Consumer Name:</b> <b>{c(name)}</b>\n"
+        f"• <b>Registered Phone:</b> <code>{c(phone)}</code>\n"
+        f"• <b>Date of Birth:</b> {c(dob)}\n"
+        f"• <b>Pincode:</b> <code>{c(pincode)}</code>\n"
+        f"• <b>Status:</b> 🟢 Verified\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{DEV_TAG}"
     )
 
 
-async def handle_vehicle_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rc_number = update.message.text.strip().replace(" ", "").upper()
+def format_pan_v1_response(data: dict, query: str) -> str:
+    info = data.get("data") or {}
+    pan_no = data.get("pan") or query
+    name = info.get("customerName") or f"{c(info.get('firstName'))} {c(info.get('lastName'))}".strip()
+    status = info.get("panStatus", "VALID")
+    dob = info.get("dob")
 
-    if len(rc_number) < 6:
-        await update.message.reply_text("⚠️ Kripya valid registration number enter karein.")
+    return (
+        f"💳 <b>PAN CARD RECORD (V1)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"• <b>PAN Number:</b> <code>{c(pan_no)}</code>\n"
+        f"• <b>Name:</b> <b>{c(name)}</b>\n"
+        f"• <b>DOB:</b> {c(dob)}\n"
+        f"• <b>Status:</b> 🟢 {c(status)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{DEV_TAG}"
+    )
+
+
+def format_pan_v2_response(data: dict, query: str) -> str:
+    info = data.get("data") or {}
+    pan_no = info.get("pan_number") or query
+    name = info.get("name") or f"{c(info.get('first_name'))} {c(info.get('last_name'))}".strip()
+    status = info.get("pan_status", "VALID")
+    dob = info.get("dob")
+    gender = info.get("gender")
+    category = info.get("category")
+    is_linked = "Yes" if info.get("is_aadhaar_linked") else "No"
+
+    return (
+        f"💳 <b>PAN CARD RECORD (V2)</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"• <b>PAN Number:</b> <code>{c(pan_no)}</code>\n"
+        f"• <b>Name:</b> <b>{c(name)}</b>\n"
+        f"• <b>Gender / Category:</b> {c(gender)} | {c(category)}\n"
+        f"• <b>DOB:</b> {c(dob)}\n"
+        f"• <b>Aadhaar Linked:</b> <code>{is_linked}</code>\n"
+        f"• <b>PAN Status:</b> 🟢 {c(status)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{DEV_TAG}"
+    )
+
+
+def format_family_response(data: dict, query: str) -> str:
+    details = data.get("details", {}).get("pd", {})
+    rc_no = data.get("rationCardNumber") or details.get("rcId")
+    scheme = details.get("schemeName") or details.get("schemeId")
+    address = details.get("address")
+    fps = details.get("fpsId")
+    members = details.get("memberDetailsList", [])
+
+    lines = [
+        f"👨‍👩‍👧‍👦 <b>RATION CARD & FAMILY TREE</b>",
+        f"━━━━━━━━━━━━━━━━━━━━",
+        f"• <b>Ration Card No:</b> <code>{c(rc_no)}</code>",
+        f"• <b>Scheme:</b> {c(scheme)}",
+        f"• <b>Dealer (FPS ID):</b> <code>{c(fps)}</code>",
+        f"• <b>Address:</b> {c(address)}",
+        f"\n<b>Registered Family Members ({len(members)}):</b>",
+    ]
+
+    for idx, m in enumerate(members, 1):
+        m_name = m.get("memberName")
+        rel = m.get("releationship_name")
+        lines.append(f"  {idx}. <b>{c(m_name)}</b> — <i>{c(rel)}</i>")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append(DEV_TAG)
+    return "\n".join(lines)
+
+
+def format_aadhar_response(data: dict, query: str) -> str:
+    records = data.get("RESULT") or data.get("result") or []
+    count = data.get("COUNT") or len(records)
+
+    lines = [
+        f"📑 <b>LINKED CONNECTIONS REPORT ({count} Records)</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    for idx, r in enumerate(records, 1):
+        name = r.get("NAME") or r.get("name")
+        fname = r.get("FNAME") or r.get("father_name")
+        num = r.get("NUMBER") or r.get("mobile")
+        alt = r.get("ALT") or r.get("alternate_mobile")
+        circle = r.get("CIRCLE") or r.get("circle")
+        email = r.get("EMAIL") or r.get("email")
+
+        lines.append(f"\n<b>[Link #{idx}]</b>")
+        lines.append(f"• <b>Name:</b> <b>{c(name)}</b>")
+        lines.append(f"• <b>Father:</b> {c(fname)}")
+        lines.append(f"• <b>Phone:</b> <code>{c(num)}</code>")
+        if alt:
+            lines.append(f"• <b>Alt Phone:</b> <code>{c(alt)}</code>")
+        if email:
+            lines.append(f"• <b>Email:</b> {c(email)}")
+        lines.append(f"• <b>Circle:</b> {c(circle)}")
+
+    lines.append("\n━━━━━━━━━━━━━━━━━━━━")
+    lines.append(DEV_TAG)
+    return "\n".join(lines)
+
+
+def format_generic_card(cmd: str, payload: dict, query: str) -> str:
+    if payload.get("error") == "no data found" or payload.get("status") == "FAILED":
+        return f"⚠️ <b>No records found</b> for query: <code>{c(query)}</code>\n\n{DEV_TAG}"
+
+    if cmd == "number":
+        return format_number_response(payload, query)
+    elif cmd == "hp":
+        return format_hp_response(payload, query)
+    elif cmd == "pan":
+        return format_pan_v1_response(payload, query)
+    elif cmd == "pan2":
+        return format_pan_v2_response(payload, query)
+    elif cmd == "family":
+        return format_family_response(payload, query)
+    elif cmd == "aadhar":
+        return format_aadhar_response(payload, query)
+    else:
+        inner = payload.get("data") or payload.get("result") or payload
+        lines = [
+            f"🔎 <b>SEARCH REPORT: {cmd.upper()}</b>",
+            f"━━━━━━━━━━━━━━━━━━━━",
+            f"• <b>Input:</b> <code>{c(query)}</code>",
+        ]
+        if isinstance(inner, dict):
+            for k, v in inner.items():
+                if isinstance(v, (str, int, float, bool)):
+                    lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append(DEV_TAG)
+        return "\n".join(lines)
+
+
+# ==========================================
+# COMMAND DISPATCHER & LIFECYCLE
+# ==========================================
+
+async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cmd = update.message.text.split()[0].replace("/", "").lower()
+
+    if not context.args:
+        await update.message.reply_text(
+            f"⚠️ <b>Input missing!</b>\nExample: <code>/{cmd} &lt;query&gt;</code>\n\n{DEV_TAG}",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
-    msg = await update.message.reply_text("🔄 <i>Fetching RC and Challan records...</i>", parse_mode=ParseMode.HTML)
+    query_value = " ".join(context.args).strip()
+    msg = await update.message.reply_text("🔄 <i>Searching records...</i>", parse_mode=ParseMode.HTML)
+
+    params = {
+        "key": API_KEY,
+        "cmd": cmd,
+        "query": query_value,
+    }
 
     try:
-        params = {
-            "key": API_KEY,
-            "cmd": "vehicleall",
-            "query": rc_number,
-        }
-        response = requests.get(API_URL, params=params, timeout=30)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(API_BASE_URL, params=params)
 
-        if response.status_code != 200:
-            await msg.edit_text(f"❌ Server Error: HTTP {response.status_code}")
+        if resp.status_code != 200:
+            await msg.edit_text(f"❌ <b>Server Error:</b> HTTP {resp.status_code}\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
             return
 
-        payload = response.json()
+        payload = resp.json()
+        formatted_text = format_generic_card(cmd, payload, query_value)
 
-        if not payload.get("results") or not payload.get("results", {}).get("vehicle"):
-            await msg.edit_text(f"⚠️ <code>{rc_number}</code> ke liye koi record nahi mila.", parse_mode=ParseMode.HTML)
-            return
+        if len(formatted_text) > 4000:
+            await msg.delete()
+            chunks = []
+            while len(formatted_text) > 4000:
+                idx = formatted_text.rfind("\n\n", 0, 4000)
+                if idx == -1:
+                    idx = 4000
+                chunks.append(formatted_text[:idx].strip())
+                formatted_text = formatted_text[idx:].strip()
+            if formatted_text:
+                chunks.append(formatted_text)
 
-        chunks = parse_vehicle_payload(payload)
-        await msg.delete()
+            for chunk in chunks:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
+        else:
+            await msg.edit_text(formatted_text, parse_mode=ParseMode.HTML)
 
-        for chunk in chunks:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
-
-    except requests.exceptions.Timeout:
-        await msg.edit_text("⏳ Request timeout ho gaya. API server respond nahi kar raha.")
+    except httpx.TimeoutException:
+        await msg.edit_text(f"⏳ <b>Timeout:</b> API server took too long to respond.\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
     except Exception as e:
-        logging.error(f"Execution Error: {e}")
-        await msg.edit_text(f"❌ Error: {clean(str(e))}")
+        logging.error(f"Error handling /{cmd}: {e}")
+        await msg.edit_text(f"❌ <b>Error:</b> {c(str(e))}\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
+
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_text = (
+        "✨ <b>RECORD VERIFICATION PORTAL</b> ✨\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Available commands:\n\n"
+        "• <code>/number &lt;mobile&gt;</code> - Telecom records\n"
+        "• <code>/hp &lt;mobile&gt;</code> - HP Gas connection\n"
+        "• <code>/pan &lt;pan_no&gt;</code> - PAN verification (v1)\n"
+        "• <code>/pan2 &lt;pan_no&gt;</code> - PAN details & seeding (v2)\n"
+        "• <code>/upi &lt;vpa_id&gt;</code> - UPI verification\n"
+        "• <code>/tg &lt;id&gt;</code> - Telegram user info\n"
+        "• <code>/family &lt;ref_id&gt;</code> - Ration / Family tree\n"
+        "• <code>/aadhar &lt;ref_id&gt;</code> - Linked mobile records\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{DEV_TAG}"
+    )
+    await update.message.reply_text(welcome_text, parse_mode=ParseMode.HTML)
 
 
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_vehicle_query))
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .build()
+    )
 
-    print("Vehicle Info Bot is running...")
+    app.add_handler(CommandHandler("start", start_command))
+
+    commands = ["number", "hp", "upi", "pan", "pan2", "tg", "family", "aadhar"]
+    for c_name in commands:
+        app.add_handler(CommandHandler(c_name, generic_query_handler))
+
+    print("Portal bot is running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-                                            
+    
