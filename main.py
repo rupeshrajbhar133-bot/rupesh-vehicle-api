@@ -14,6 +14,7 @@ from telegram.ext import (
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAERjv96juc0UfCjs2B6ZAyDhj2if5Yr2nU")
 API_KEY = os.getenv("API_KEY", "WMVL9")
 API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
+TG_TO_NUM_API_URL = "https://tg-to-number-number-nitin.vercel.app/api"
 DEV_TAG = "👨‍💻 <b>Developer:</b> @RD3B4T"
 
 logging.basicConfig(
@@ -53,6 +54,7 @@ def format_number_response(data: dict, query: str) -> str:
         fname = r.get("father_name") or r.get("FNAME")
         mobile = r.get("mobile") or r.get("NUMBER")
         alt = r.get("alternate_mobile") or r.get("ALT")
+        aadhar = r.get("aadhar") or r.get("AADHAAR")
         email = r.get("email") or r.get("EMAIL")
         circle = r.get("circle") or r.get("CIRCLE")
         address = r.get("address") or r.get("ADDRESS")
@@ -63,6 +65,8 @@ def format_number_response(data: dict, query: str) -> str:
         lines.append(f"• <b>Mobile:</b> <code>{c(mobile)}</code>")
         if alt:
             lines.append(f"• <b>Alt Mobile:</b> <code>{c(alt)}</code>")
+        if aadhar:
+            lines.append(f"• <b>Aadhaar:</b> <code>{c(aadhar)}</code>")
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
         lines.append(f"• <b>Circle / Operator:</b> {c(circle)}")
@@ -219,7 +223,7 @@ def format_generic_card(cmd: str, payload: dict, query: str) -> str:
         inner = payload.get("data") or payload.get("result") or payload
         lines = [
             f"🔎 <b>SEARCH REPORT: {cmd.upper()}</b>",
-            f"━━━━━━━━━━━━━━━━━━━━",
+            "━━━━━━━━━━━━━━━━━━━━",
             f"• <b>Input:</b> <code>{c(query)}</code>",
         ]
         if isinstance(inner, dict):
@@ -232,7 +236,7 @@ def format_generic_card(cmd: str, payload: dict, query: str) -> str:
 
 
 # ==========================================
-# COMMAND DISPATCHER & LIFECYCLE
+# COMMAND DISPATCHERS
 # ==========================================
 
 async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -289,6 +293,62 @@ async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await msg.edit_text(f"❌ <b>Error:</b> {c(str(e))}\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
 
 
+async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler for the external Vercel Telegram-to-number API."""
+    if not context.args:
+        await update.message.reply_text(
+            f"⚠️ <b>Input missing!</b>\nUsage: <code>/tg2num &lt;telegram_id&gt;</code>\n\n{DEV_TAG}",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    query_val = context.args[0].strip()
+    msg = await update.message.reply_text("🔄 <i>Searching Telegram ID...</i>", parse_mode=ParseMode.HTML)
+
+    params = {"search": query_val}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(TG_TO_NUM_API_URL, params=params)
+
+        payload = resp.json()
+
+        if "error" in payload:
+            err_msg = payload.get("error")
+            await msg.edit_text(
+                f"⚠️ <b>Service Notice:</b> {c(err_msg)}\n"
+                f"<i>(Vercel backend is returning an internal error. Please try again later.)</i>\n\n{DEV_TAG}",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        inner = payload.get("data") or payload.get("result") or payload
+        lines = [
+            "✈️ <b>TG TO NUMBER REPORT</b>",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"• <b>Telegram ID:</b> <code>{c(query_val)}</code>",
+        ]
+
+        if isinstance(inner, dict):
+            for k, v in inner.items():
+                if isinstance(v, (str, int, float, bool)):
+                    lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
+        elif isinstance(inner, list):
+            for idx, item in enumerate(inner, 1):
+                lines.append(f"\n<b>Record #{idx}:</b> <code>{c(str(item))}</code>")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append(DEV_TAG)
+
+        await msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+    except httpx.TimeoutException:
+        await msg.edit_text(f"⏳ <b>Timeout:</b> Server took too long to respond.\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logging.error(f"Error in tg2num: {e}")
+        await msg.edit_text(f"❌ <b>Error:</b> {c(str(e))}\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "✨ <b>RECORD VERIFICATION PORTAL</b> ✨\n"
@@ -299,7 +359,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/pan &lt;pan_no&gt;</code> - PAN verification (v1)\n"
         "• <code>/pan2 &lt;pan_no&gt;</code> - PAN details & seeding (v2)\n"
         "• <code>/upi &lt;vpa_id&gt;</code> - UPI verification\n"
-        "• <code>/tg &lt;id&gt;</code> - Telegram user info\n"
+        "• <code>/tg &lt;id&gt;</code> - Telegram user info (GBS API)\n"
+        "• <code>/tg2num &lt;id&gt;</code> - Telegram to phone (Vercel API)\n"
         "• <code>/family &lt;ref_id&gt;</code> - Ration / Family tree\n"
         "• <code>/aadhar &lt;ref_id&gt;</code> - Linked mobile records\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -319,6 +380,7 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("tg2num", tg_to_number_handler))
 
     commands = ["number", "hp", "upi", "pan", "pan2", "tg", "family", "aadhar"]
     for c_name in commands:
@@ -330,4 +392,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
