@@ -11,10 +11,14 @@ from telegram.ext import (
 )
 
 # Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAGgDWrZVIwzCvAcR3hMrf5y85iVZSMkzKA")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAEY_JiRUhAhTLZEgfEUqtD7D43CaRaCeH0")
 API_KEY = os.getenv("API_KEY", "WMVL9")
 API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
-TG_TO_NUM_API_URL = "https://tg-to-number-number-nitin.vercel.app/api"
+
+# Updated TG to Number API Configuration
+TG_TO_NUM_API_URL = os.getenv("TG_TO_NUM_API_URL", "https://tg-2-num.vaault.in/tg-2-num")
+TG_TO_NUM_API_KEY = os.getenv("TG_TO_NUM_API_KEY", "Gautamxlive1")
+
 DEV_TAG = "👨‍💻 <b>Developer:</b> @RD3B4T"
 
 logging.basicConfig(
@@ -51,14 +55,15 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
 def format_number_response(data: dict, query: str) -> str:
     records = data.get("result") or data.get("RESULT") or []
     if not records and isinstance(data, dict):
-        if "name" in data or "NAME" in data:
+        if any(k in data for k in ("name", "NAME", "aadhar", "AADHAAR", "mobile", "NUMBER")):
             records = [data]
 
     if not records:
         return f"⚠️ <code>{c(query)}</code> ke liye koi telecom record nahi mila.\n\n{DEV_TAG}"
 
+    total_count = data.get("total_records") or data.get("COUNT") or len(records)
     lines = [
-        f"📱 <b>MOBILE LOOKUP RECORDS ({len(records)} Found)</b>",
+        f"📱 <b>MOBILE LOOKUP RECORDS ({total_count} Found)</b>",
         f"<b>Input:</b> <code>{c(query)}</code>",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
@@ -68,7 +73,7 @@ def format_number_response(data: dict, query: str) -> str:
         fname = r.get("father_name") or r.get("FNAME")
         mobile = r.get("mobile") or r.get("NUMBER")
         alt = r.get("alternate_mobile") or r.get("ALT")
-        aadhar = r.get("aadhar") or r.get("AADHAAR")
+        aadhar = r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar")
         email = r.get("email") or r.get("EMAIL")
         circle = r.get("circle") or r.get("CIRCLE")
         address = r.get("address") or r.get("ADDRESS")
@@ -186,8 +191,11 @@ def format_family_response(data: dict, query: str) -> str:
 
 
 def format_aadhar_response(data: dict, query: str) -> str:
-    records = data.get("RESULT") or data.get("result") or []
-    count = data.get("COUNT") or len(records)
+    records = data.get("result") or data.get("RESULT") or []
+    count = data.get("total_records") or data.get("COUNT") or len(records)
+
+    if not records:
+        return f"⚠️ <code>{c(query)}</code> ke liye koi linked record nahi mila.\n\n{DEV_TAG}"
 
     lines = [
         f"📑 <b>LINKED CONNECTIONS REPORT ({count} Records)</b>",
@@ -195,12 +203,14 @@ def format_aadhar_response(data: dict, query: str) -> str:
     ]
 
     for idx, r in enumerate(records, 1):
-        name = r.get("NAME") or r.get("name")
-        fname = r.get("FNAME") or r.get("father_name")
-        num = r.get("NUMBER") or r.get("mobile")
-        alt = r.get("ALT") or r.get("alternate_mobile")
-        circle = r.get("CIRCLE") or r.get("circle")
-        email = r.get("EMAIL") or r.get("email")
+        name = r.get("name") or r.get("NAME")
+        fname = r.get("father_name") or r.get("FNAME")
+        num = r.get("mobile") or r.get("NUMBER")
+        alt = r.get("alternate_mobile") or r.get("ALT")
+        aadhar = r.get("aadhar") or r.get("AADHAAR") or r.get("aadhaar")
+        circle = r.get("circle") or r.get("CIRCLE")
+        email = r.get("email") or r.get("EMAIL")
+        address = r.get("address") or r.get("ADDRESS")
 
         lines.append(f"\n<b>[Link #{idx}]</b>")
         lines.append(f"• <b>Name:</b> <b>{c(name)}</b>")
@@ -208,9 +218,13 @@ def format_aadhar_response(data: dict, query: str) -> str:
         lines.append(f"• <b>Phone:</b> <code>{c(num)}</code>")
         if alt:
             lines.append(f"• <b>Alt Phone:</b> <code>{c(alt)}</code>")
+        if aadhar:
+            lines.append("• <b>Aadhaar:</b> <code>[Linked / Redacted]</code>")
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
         lines.append(f"• <b>Circle:</b> {c(circle)}")
+        if address:
+            lines.append(f"• <b>Address:</b> {c(address)}")
 
     lines.append("\n━━━━━━━━━━━━━━━━━━━━")
     lines.append(DEV_TAG)
@@ -312,19 +326,28 @@ async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     query_val = context.args[0].strip()
     msg = await update.message.reply_text("🔄 <i>Searching Telegram ID...</i>", parse_mode=ParseMode.HTML)
 
-    params = {"search": query_val}
+    params = {
+        "key": TG_TO_NUM_API_KEY,
+        "q": query_val,
+    }
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(TG_TO_NUM_API_URL, params=params)
 
+        if resp.status_code != 200:
+            await msg.edit_text(
+                f"❌ <b>Server Error:</b> HTTP {resp.status_code}\n\n{DEV_TAG}",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
         payload = resp.json()
 
-        if "error" in payload:
+        if isinstance(payload, dict) and payload.get("error"):
             err_msg = payload.get("error")
             await msg.edit_text(
-                f"⚠️ <b>Service Notice:</b> {c(err_msg)}\n"
-                f"<i>(Backend service error. Please try again later.)</i>\n\n{DEV_TAG}",
+                f"⚠️ <b>Service Notice:</b> {c(err_msg)}\n\n{DEV_TAG}",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -342,7 +365,13 @@ async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
         elif isinstance(inner, list):
             for idx, item in enumerate(inner, 1):
-                lines.append(f"\n<b>Record #{idx}:</b> <code>{c(str(item))}</code>")
+                if isinstance(item, dict):
+                    lines.append(f"\n<b>[Record #{idx}]</b>")
+                    for k, v in item.items():
+                        if isinstance(v, (str, int, float, bool)):
+                            lines.append(f"• <b>{c(k).replace('_', ' ').title()}:</b> <code>{c(v)}</code>")
+                else:
+                    lines.append(f"\n<b>Record #{idx}:</b> <code>{c(str(item))}</code>")
 
         lines.append("━━━━━━━━━━━━━━━━━━━━")
         lines.append(DEV_TAG)
@@ -374,7 +403,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/pan2 &lt;pan_no&gt;</code> - PAN details & seeding (v2)\n"
         "• <code>/upi &lt;vpa_id&gt;</code> - UPI verification\n"
         "• <code>/tg &lt;id&gt;</code> - Telegram user info (GBS API)\n"
-        "• <code>/tg2num &lt;id&gt;</code> - Telegram to phone (Vercel API)\n"
+        "• <code>/tg2num &lt;id&gt;</code> - Telegram to phone\n"
         "• <code>/family &lt;ref_id&gt;</code> - Ration / Family tree\n"
         "• <code>/aadhar &lt;ref_id&gt;</code> - Linked mobile records\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -406,3 +435,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
