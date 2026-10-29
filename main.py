@@ -11,7 +11,7 @@ from telegram.ext import (
 )
 
 # Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAGwVK2Z82hhw_94tHv9iJq41bQ9TsMtTR4")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8496632773:AAGgDWrZVIwzCvAcR3hMrf5y85iVZSMkzKA")
 API_KEY = os.getenv("API_KEY", "WMVL9")
 API_BASE_URL = "https://admin.gbssystems.com/public/api/v1/api.php"
 TG_TO_NUM_API_URL = "https://tg-to-number-number-nitin.vercel.app/api"
@@ -30,8 +30,22 @@ def c(val) -> str:
     return html.escape(str(val).strip())
 
 
+def split_message(text: str, max_length: int = 4000) -> list[str]:
+    """Split message safely to stay within Telegram character limits."""
+    chunks = []
+    while len(text) > max_length:
+        split_at = text.rfind("\n\n", 0, max_length)
+        if split_at <= 0:
+            split_at = max_length
+        chunks.append(text[:split_at].strip())
+        text = text[split_at:].strip()
+    if text:
+        chunks.append(text)
+    return chunks
+
+
 # ==========================================
-# EXACT FIELD PARSERS FOR YOUR APIS
+# EXACT FIELD PARSERS
 # ==========================================
 
 def format_number_response(data: dict, query: str) -> str:
@@ -66,7 +80,7 @@ def format_number_response(data: dict, query: str) -> str:
         if alt:
             lines.append(f"• <b>Alt Mobile:</b> <code>{c(alt)}</code>")
         if aadhar:
-            lines.append(f"• <b>Aadhaar:</b> <code>{c(aadhar)}</code>")
+            lines.append("• <b>Aadhaar:</b> <code>[Linked / Redacted]</code>")
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
         lines.append(f"• <b>Circle / Operator:</b> {c(circle)}")
@@ -152,8 +166,8 @@ def format_family_response(data: dict, query: str) -> str:
     members = details.get("memberDetailsList", [])
 
     lines = [
-        f"👨‍👩‍👧‍👦 <b>RATION CARD & FAMILY TREE</b>",
-        f"━━━━━━━━━━━━━━━━━━━━",
+        "👨‍👩‍👧‍👦 <b>RATION CARD & FAMILY TREE</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
         f"• <b>Ration Card No:</b> <code>{c(rc_no)}</code>",
         f"• <b>Scheme:</b> {c(scheme)}",
         f"• <b>Dealer (FPS ID):</b> <code>{c(fps)}</code>",
@@ -263,28 +277,22 @@ async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TY
             resp = await client.get(API_BASE_URL, params=params)
 
         if resp.status_code != 200:
-            await msg.edit_text(f"❌ <b>Server Error:</b> HTTP {resp.status_code}\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
+            await msg.edit_text(
+                f"❌ <b>Server Error:</b> HTTP {resp.status_code}\n\n{DEV_TAG}",
+                parse_mode=ParseMode.HTML,
+            )
             return
 
         payload = resp.json()
         formatted_text = format_generic_card(cmd, payload, query_value)
 
-        if len(formatted_text) > 4000:
+        chunks = split_message(formatted_text)
+        if len(chunks) == 1:
+            await msg.edit_text(chunks[0], parse_mode=ParseMode.HTML)
+        else:
             await msg.delete()
-            chunks = []
-            while len(formatted_text) > 4000:
-                idx = formatted_text.rfind("\n\n", 0, 4000)
-                if idx == -1:
-                    idx = 4000
-                chunks.append(formatted_text[:idx].strip())
-                formatted_text = formatted_text[idx:].strip()
-            if formatted_text:
-                chunks.append(formatted_text)
-
             for chunk in chunks:
                 await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
-        else:
-            await msg.edit_text(formatted_text, parse_mode=ParseMode.HTML)
 
     except httpx.TimeoutException:
         await msg.edit_text(f"⏳ <b>Timeout:</b> API server took too long to respond.\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
@@ -294,7 +302,6 @@ async def generic_query_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler for the external Vercel Telegram-to-number API."""
     if not context.args:
         await update.message.reply_text(
             f"⚠️ <b>Input missing!</b>\nUsage: <code>/tg2num &lt;telegram_id&gt;</code>\n\n{DEV_TAG}",
@@ -317,7 +324,7 @@ async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             err_msg = payload.get("error")
             await msg.edit_text(
                 f"⚠️ <b>Service Notice:</b> {c(err_msg)}\n"
-                f"<i>(Vercel backend is returning an internal error. Please try again later.)</i>\n\n{DEV_TAG}",
+                f"<i>(Backend service error. Please try again later.)</i>\n\n{DEV_TAG}",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -340,7 +347,14 @@ async def tg_to_number_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         lines.append("━━━━━━━━━━━━━━━━━━━━")
         lines.append(DEV_TAG)
 
-        await msg.edit_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        formatted_text = "\n".join(lines)
+        chunks = split_message(formatted_text)
+        if len(chunks) == 1:
+            await msg.edit_text(chunks[0], parse_mode=ParseMode.HTML)
+        else:
+            await msg.delete()
+            for chunk in chunks:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
 
     except httpx.TimeoutException:
         await msg.edit_text(f"⏳ <b>Timeout:</b> Server took too long to respond.\n\n{DEV_TAG}", parse_mode=ParseMode.HTML)
@@ -392,4 +406,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
