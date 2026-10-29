@@ -103,11 +103,10 @@ def format_number_response(data: dict, query: str) -> str:
             lines.append(f"• <b>Alt Mobile:</b> <code>{c(alt)}</code>")
 
         # Aadhaar presence status
-if aadhar_val and str(aadhar_val).strip().lower() not in ("none", "null", "na", ""):
-    lines.append(f"• <b>Aadhaar:</b> <code>{aadhar_val}</code>")
-else:
-    lines.append("• <b>Aadhaar:</b> <code>Not Linked / Not Available</code>")
-    
+        if aadhar_val and str(aadhar_val).strip().lower() not in ("none", "null", "na", ""):
+            lines.append(f"• <b>Aadhaar:</b> <code>{c(aadhar_val)}</code>")
+        else:
+            lines.append("• <b>Aadhaar:</b> <code>Not Linked / Not Available</code>")
 
         if email:
             lines.append(f"• <b>Email:</b> {c(email)}")
@@ -287,7 +286,7 @@ def format_aadhar_response(data: dict, query: str) -> str:
         if alt:
             lines.append(f"• <b>Alt Phone:</b> <code>{c(alt)}</code>")
         if aadhar_val and aadhar_val.lower() not in ("none", "null", "na"):
-            lines.append("• <b>Aadhaar:</b> <code>[Linked / Redacted]</code>")
+            lines.append(f"• <b>Aadhaar:</b> <code>{c(aadhar_val)}</code>")
         else:
             lines.append("• <b>Aadhaar:</b> <code>Not Linked / Not Available</code>")
         if email:
@@ -482,4 +481,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
